@@ -1,7 +1,7 @@
 use crate::token::{Location, Token, TokenType};
 
 pub fn tokenize(source: &str) -> Vec<Token> {
-	Tokenizer::new(source.chars()).collect::<Vec<Token>>()
+	Tokenizer::new(source).collect::<Vec<Token>>()
 }
 
 struct Tokenizer {
@@ -13,9 +13,9 @@ struct Tokenizer {
 }
 
 impl Tokenizer {
-	pub fn new(source: impl Iterator<Item = char>) -> Self {
+	pub fn new(source: &str) -> Self {
 		Tokenizer {
-			source: source.collect(),
+			source: source.chars().collect(),
 			position: 0,
 			buffer: String::new(),
 			start_location: Location { line: 1, column: 1 },
@@ -129,6 +129,34 @@ impl Tokenizer {
 
 		self.get_token(TokenType::Number)
 	}
+
+	fn get_identifier_token(&mut self) -> Token {
+		while self.peek().take_if(|&mut it| it == '_' || it.is_ascii_alphanumeric()) != None {
+			self.advance(true);
+		}
+
+		let token_type = match self.buffer.as_str() {
+			"and" => TokenType::And,
+			"class" => TokenType::Class,
+			"else" => TokenType::Else,
+			"false" => TokenType::False,
+			"for" => TokenType::For,
+			"fun" => TokenType::Fun,
+			"if" => TokenType::If,
+			"nil" => TokenType::Nil,
+			"or" => TokenType::Or,
+			"print" => TokenType::Print,
+			"return" => TokenType::Return,
+			"super" => TokenType::Super,
+			"this" => TokenType::This,
+			"true" => TokenType::True,
+			"var" => TokenType::Var,
+			"while" => TokenType::While,
+			_ => TokenType::Identifier,
+		};
+
+		self.get_token(token_type)
+	}
 }
 
 impl Iterator for Tokenizer {
@@ -199,6 +227,8 @@ impl Iterator for Tokenizer {
 			_ if c.is_ascii_whitespace() => self.next(),
 
 			_ if c.is_ascii_digit() => Some(self.get_number_token()),
+
+			_ if c == '_' || c.is_ascii_alphabetic() => Some(self.get_identifier_token()),
 
 			_ => Some(self.get_token(TokenType::UnknownChar)),
 		})
@@ -540,6 +570,45 @@ mod tests {
 				String::from("."),
 				Location { line: 3, column: 2 },
 			),
+		];
+
+		let actual = tokenize(input);
+
+		assert_eq!(expected, actual);
+	}
+
+	#[test]
+	pub fn identifiers() {
+		let input = "orchid";
+		let expected = vec![
+			Token::new(TokenType::Identifier, String::from("orchid"), Location { line: 1, column: 1 }),
+		];
+
+		let actual = tokenize(input);
+
+		assert_eq!(expected, actual);
+	}
+
+	#[test]
+	pub fn keywords() {
+		let input = "and class else false for fun if nil or print return super this true var while";
+		let expected = vec![
+			Token::new(TokenType::And, String::from("and"), Location { line: 1, column: 1 }),
+			Token::new(TokenType::Class, String::from("class"), Location { line: 1, column: 5 }),
+			Token::new(TokenType::Else, String::from("else"), Location { line: 1, column: 11 }),
+			Token::new(TokenType::False, String::from("false"), Location { line: 1, column: 16 }),
+			Token::new(TokenType::For, String::from("for"), Location { line: 1, column: 22 }),
+			Token::new(TokenType::Fun, String::from("fun"), Location { line: 1, column: 26 }),
+			Token::new(TokenType::If, String::from("if"), Location { line: 1, column: 30 }),
+			Token::new(TokenType::Nil, String::from("nil"), Location { line: 1, column: 33 }),
+			Token::new(TokenType::Or, String::from("or"), Location { line: 1, column: 37 }),
+			Token::new(TokenType::Print, String::from("print"), Location { line: 1, column: 40 }),
+			Token::new(TokenType::Return, String::from("return"), Location { line: 1, column: 46 }),
+			Token::new(TokenType::Super, String::from("super"), Location { line: 1, column: 53 }),
+			Token::new(TokenType::This, String::from("this"), Location { line: 1, column: 59 }),
+			Token::new(TokenType::True, String::from("true"), Location { line: 1, column: 64 }),
+			Token::new(TokenType::Var, String::from("var"), Location { line: 1, column: 69 }),
+			Token::new(TokenType::While, String::from("while"), Location { line: 1, column: 73 }),
 		];
 
 		let actual = tokenize(input);
