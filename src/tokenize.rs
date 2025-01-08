@@ -1,36 +1,57 @@
 use crate::token::{Location, Token, TokenType};
-use std::iter::Peekable;
-use tap::{Tap, TapOptional};
 
 pub fn tokenize(source: &str) -> Vec<Token> {
-	Tokenizer::new(source.chars().peekable()).collect::<Vec<Token>>()
+	Tokenizer::new(source.chars()).collect::<Vec<Token>>()
 }
 
-struct Tokenizer<Source: Iterator<Item = char>> {
-	source: Peekable<Source>,
+struct Tokenizer {
+	source: Vec<char>,
+	position: usize,
 	buffer: String,
 	start_location: Location,
 	current_location: Location,
 }
 
-impl<Source: Iterator<Item = char>> Tokenizer<Source> {
-	pub fn new(source: Peekable<Source>) -> Self {
+impl Tokenizer {
+	pub fn new(source: impl Iterator<Item = char>) -> Self {
 		Tokenizer {
-			source,
+			source: source.collect(),
+			position: 0,
 			buffer: String::new(),
 			start_location: Location { line: 1, column: 1 },
 			current_location: Location { line: 1, column: 1 },
 		}
 	}
 
-	fn peek(&mut self) -> Option<&char> {
-		self.source.peek()
+	fn peek(&mut self) -> Option<char> {
+		if self.position < self.source.len() {
+			Some(self.source[self.position])
+		} else {
+			None
+		}
+	}
+
+	fn peek_next(&mut self) -> Option<char> {
+		if self.position + 1 < self.source.len() {
+			Some(self.source[self.position + 1])
+		} else {
+			None
+		}
 	}
 
 	fn advance(&mut self, ignore_whitespace: bool) -> Option<char> {
-		self.source.next().tap_some(|c| {
+		let next;
+
+		if self.position < self.source.len() {
+			next = Some(self.source[self.position]);
+			self.position += 1;
+		} else {
+			next = None;
+		};
+
+		if let Some(c) = next {
 			// add char to buffer
-			self.buffer.push(*c);
+			self.buffer.push(c);
 
 			// update location
 			match c {
@@ -49,45 +70,68 @@ impl<Source: Iterator<Item = char>> Tokenizer<Source> {
 				self.start_location = self.current_location.clone();
 				self.buffer.clear();
 			}
-		})
+		}
+
+		next
 	}
 
 	/// returns: whether the tokenizer advanced or not
 	fn advance_if(&mut self, expected: char) -> bool {
 		match self.peek() {
 			None => false,
-			Some(&c) => (c == expected).tap(|&it| {
-				if it {
+			Some(c) => {
+				if c != expected {
+					false
+				} else {
 					self.advance(true);
+					true
 				}
-			}),
+			}
 		}
 	}
 
 	fn get_token(&mut self, token_type: TokenType) -> Token {
-		Token::new(token_type, self.buffer.clone(), self.start_location.clone()).tap(|_| {
-			self.buffer.clear();
-			self.start_location = self.current_location.clone();
-		})
+		let token = Token::new(token_type, self.buffer.clone(), self.start_location.clone());
+
+		self.buffer.clear();
+		self.start_location = self.current_location.clone();
+
+		token
 	}
-	
+
 	fn get_string_token(&mut self) -> Token {
-		while self.peek() != Some(&'"') && self.peek() != None {
+		while self.peek() != Some('"') && self.peek() != None {
 			self.advance(false);
 		}
-		
+
 		if self.peek() == None {
 			self.get_token(TokenType::UnterminatedString)
-		}
-		else {
+		} else {
 			// consume the closing quote
 			self.advance(false);
 			self.get_token(TokenType::String)
 		}
 	}
+
+	fn get_number_token(&mut self) -> Token {
+		while self.peek().take_if(|it| it.is_ascii_digit()) != None {
+			self.advance(true);
+		}
+
+		if self.peek() == Some('.') && self.peek_next().take_if(|it| it.is_ascii_digit()) != None {
+			// Consume the decimal point
+			self.advance(true);
+
+			while self.peek().take_if(|it| it.is_ascii_digit()) != None {
+				self.advance(true);
+			}
+		}
+
+		self.get_token(TokenType::Number)
+	}
 }
 
-impl<Source: Iterator<Item = char>> Iterator for Tokenizer<Source> {
+impl Iterator for Tokenizer {
 	type Item = Token;
 
 	fn next(&mut self) -> Option<Self::Item> {
@@ -111,7 +155,7 @@ impl<Source: Iterator<Item = char>> Iterator for Tokenizer<Source> {
 				};
 				Some(self.get_token(token_type))
 			}
-			
+
 			'=' => {
 				let token_type = if self.advance_if('=') {
 					TokenType::EqualEqual
@@ -120,7 +164,7 @@ impl<Source: Iterator<Item = char>> Iterator for Tokenizer<Source> {
 				};
 				Some(self.get_token(token_type))
 			}
-			
+
 			'<' => {
 				let token_type = if self.advance_if('=') {
 					TokenType::LessEqual
@@ -129,7 +173,7 @@ impl<Source: Iterator<Item = char>> Iterator for Tokenizer<Source> {
 				};
 				Some(self.get_token(token_type))
 			}
-			
+
 			'>' => {
 				let token_type = if self.advance_if('=') {
 					TokenType::GreaterEqual
@@ -141,7 +185,7 @@ impl<Source: Iterator<Item = char>> Iterator for Tokenizer<Source> {
 
 			'/' => {
 				if self.advance_if('/') {
-					while self.peek() != Some(&'\n') && self.peek() != None {
+					while self.peek() != Some('\n') && self.peek() != None {
 						self.advance(false);
 					}
 					Some(self.get_token(TokenType::Comment))
@@ -149,10 +193,12 @@ impl<Source: Iterator<Item = char>> Iterator for Tokenizer<Source> {
 					Some(self.get_token(TokenType::Slash))
 				}
 			}
-			
+
 			'"' => Some(self.get_string_token()),
 
 			_ if c.is_ascii_whitespace() => self.next(),
+
+			_ if c.is_ascii_digit() => Some(self.get_number_token()),
 
 			_ => Some(self.get_token(TokenType::UnknownChar)),
 		})
@@ -443,17 +489,61 @@ mod tests {
 
 		assert_eq!(expected, actual);
 	}
-	
+
 	#[test]
 	pub fn strings() {
 		let input = "\"test\"\"test";
 		let expected = vec![
-			Token::new(TokenType::String, String::from("\"test\""), Location { line: 1, column: 1 }),
-			Token::new(TokenType::UnterminatedString, String::from("\"test"), Location { line: 1, column: 7 }),
+			Token::new(
+				TokenType::String,
+				String::from("\"test\""),
+				Location { line: 1, column: 1 },
+			),
+			Token::new(
+				TokenType::UnterminatedString,
+				String::from("\"test"),
+				Location { line: 1, column: 7 },
+			),
 		];
-		
+
 		let actual = tokenize(input);
-		
+
+		assert_eq!(expected, actual);
+	}
+
+	#[test]
+	pub fn numbers() {
+		let input = "420.69\n.5\n5.";
+		let expected = vec![
+			Token::new(
+				TokenType::Number,
+				String::from("420.69"),
+				Location { line: 1, column: 1 },
+			),
+			Token::new(
+				TokenType::Dot,
+				String::from("."),
+				Location { line: 2, column: 1 },
+			),
+			Token::new(
+				TokenType::Number,
+				String::from("5"),
+				Location { line: 2, column: 2 },
+			),
+			Token::new(
+				TokenType::Number,
+				String::from("5"),
+				Location { line: 3, column: 1 },
+			),
+			Token::new(
+				TokenType::Dot,
+				String::from("."),
+				Location { line: 3, column: 2 },
+			),
+		];
+
+		let actual = tokenize(input);
+
 		assert_eq!(expected, actual);
 	}
 }
