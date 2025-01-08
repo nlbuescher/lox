@@ -52,6 +52,16 @@ impl<Source: Iterator<Item = char>> Tokenizer<Source> {
 		})
 	}
 	
+	/// returns: whether the tokenizer advanced or not 
+	fn advance_if(&mut self, expected: char) -> bool {
+		match self.peek() {
+			None => false,
+			Some(&c) => {
+				(c == expected).tap(|&it| if it { self.advance(); })
+			}
+		}
+	}
+	
 	fn get_token(&mut self, token_type: TokenType) -> Token {
 		Token::new(token_type, self.buffer.clone(), self.start_location.clone())
 			.tap(|_| {
@@ -77,6 +87,23 @@ impl <Source: Iterator<Item=char>> Iterator for Tokenizer<Source> {
 				'+' => Some(self.get_token(TokenType::Plus)),
 				';' => Some(self.get_token(TokenType::Semicolon)),
 				'*' => Some(self.get_token(TokenType::Star)),
+				
+				'!' => {
+					let token_type = if self.advance_if('=') { TokenType::BangEqual } else { TokenType::Bang };
+					Some(self.get_token(token_type))
+				}
+				'=' => {
+					let token_type = if self.advance_if('=') { TokenType::EqualEqual } else { TokenType::Equal };
+					Some(self.get_token(token_type))
+				}
+				'<' => {
+					let token_type = if self.advance_if('=') { TokenType::LessEqual } else { TokenType::Less };
+					Some(self.get_token(token_type))
+				}
+				'>' => {
+					let token_type = if self.advance_if('=') { TokenType::GreaterEqual } else { TokenType::Greater };
+					Some(self.get_token(token_type))
+				}
 				
 				_ if c.is_whitespace() => self.next(),
 				
@@ -182,6 +209,25 @@ mod tests {
 			Token::new(TokenType::Unknown, String::from("$"), Location { line: 1, column: 3 }),
 			Token::new(TokenType::LeftParen, String::from("("), Location { line: 1, column: 4 }),
 			Token::new(TokenType::Unknown, String::from("#"), Location { line: 1, column: 5 }),
+		];
+		
+		let actual = tokenize(input);
+		
+		assert_eq!(expected, actual);
+	}
+	
+	#[test]
+	pub fn operators() {
+		let input = "! != = == < <= > >=";
+		let expected = vec![
+			Token::new(TokenType::Bang, String::from("!"), Location { line: 1, column: 1 }),
+			Token::new(TokenType::BangEqual, String::from("!="), Location { line: 1, column: 3 }),
+			Token::new(TokenType::Equal, String::from("="), Location { line: 1, column: 6 }),
+			Token::new(TokenType::EqualEqual, String::from("=="), Location { line: 1, column: 8 }),
+			Token::new(TokenType::Less, String::from("<"), Location { line: 1, column: 11 }),
+			Token::new(TokenType::LessEqual, String::from("<="), Location { line: 1, column: 13 }),
+			Token::new(TokenType::Greater, String::from(">"), Location { line: 1, column: 16 }),
+			Token::new(TokenType::GreaterEqual, String::from(">="), Location { line: 1, column: 18 }),
 		];
 		
 		let actual = tokenize(input);
