@@ -1,7 +1,5 @@
-use crate::token::TokenType;
-use tokenize::tokenize;
+use crate::tokenize::{tokenize, TokenType};
 
-mod token;
 mod tokenize;
 
 pub fn main() {
@@ -30,6 +28,7 @@ pub fn main() {
 				}
 			}
 		}
+		
 		_ => {
 			eprintln!("Unknown command: {}", command);
 		}

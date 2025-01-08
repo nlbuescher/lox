@@ -1,7 +1,192 @@
-use crate::token::{Location, Token, TokenType};
+use std::fmt::Display;
 
-pub fn tokenize(source: &str) -> Vec<Token> {
-	Tokenizer::new(source).collect::<Vec<Token>>()
+#[derive(Debug, Clone, PartialEq)]
+pub struct Location {
+	pub line: usize,
+	pub column: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TokenType {
+	// Single-character tokens
+	LeftParen,
+	RightParen,
+	LeftBrace,
+	RightBrace,
+	Comma,
+	Dot,
+	Minus,
+	Plus,
+	Semicolon,
+	Slash,
+	Star,
+
+	// One- or two-character tokens
+	Bang,
+	BangEqual,
+	Equal,
+	EqualEqual,
+	Greater,
+	GreaterEqual,
+	Less,
+	LessEqual,
+
+	// Literals
+	Identifier,
+	String,
+	Number,
+
+	// Keywords
+	And,
+	Class,
+	Else,
+	False,
+	Fun,
+	For,
+	If,
+	Nil,
+	Or,
+	Print,
+	Return,
+	Super,
+	This,
+	True,
+	Var,
+	While,
+
+	// Other
+	Comment,
+
+	// Error
+	UnknownChar,
+	UnterminatedString,
+}
+
+impl Display for TokenType {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(
+			f,
+			"{}",
+			match self {
+				TokenType::LeftParen => "LEFT_PAREN",
+				TokenType::RightParen => "RIGHT_PAREN",
+				TokenType::LeftBrace => "LEFT_BRACE",
+				TokenType::RightBrace => "RIGHT_BRACE",
+				TokenType::Comma => "COMMA",
+				TokenType::Dot => "DOT",
+				TokenType::Minus => "MINUS",
+				TokenType::Plus => "PLUS",
+				TokenType::Semicolon => "SEMICOLON",
+				TokenType::Slash => "SLASH",
+				TokenType::Star => "STAR",
+
+				TokenType::Bang => "BANG",
+				TokenType::BangEqual => "BANG_EQUAL",
+				TokenType::Equal => "EQUAL",
+				TokenType::EqualEqual => "EQUAL_EQUAL",
+				TokenType::Greater => "GREATER",
+				TokenType::GreaterEqual => "GREATER_EQUAL",
+				TokenType::Less => "LESS",
+				TokenType::LessEqual => "LESS_EQUAL",
+
+				TokenType::Identifier => "IDENTIFIER",
+				TokenType::String => "STRING",
+				TokenType::Number => "NUMBER",
+
+				TokenType::And => "AND",
+				TokenType::Class => "CLASS",
+				TokenType::Else => "ELSE",
+				TokenType::False => "FALSE",
+				TokenType::Fun => "FUN",
+				TokenType::For => "FOR",
+				TokenType::If => "IF",
+				TokenType::Nil => "NIL",
+				TokenType::Or => "OR",
+				TokenType::Print => "PRINT",
+				TokenType::Return => "RETURN",
+				TokenType::Super => "SUPER",
+				TokenType::This => "THIS",
+				TokenType::True => "TRUE",
+				TokenType::Var => "VAR",
+				TokenType::While => "WHILE",
+
+				TokenType::Comment => "COMMENT",
+
+				TokenType::UnknownChar => "UNEXPECTED_CHAR",
+				TokenType::UnterminatedString => "UNTERMINATED_STRING",
+			}
+		)
+	}
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Value {
+	Number(f64),
+	String(String),
+}
+
+impl Display for Value {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Value::Number(value) => write!(f, "{value}"),
+			Value::String(value) => write!(f, "{value}"),
+		}
+	}
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Token {
+	pub token_type: TokenType,
+	pub text: String,
+	pub value: Option<Value>,
+	pub location: Location,
+}
+
+impl Token {
+	pub fn new(token_type: TokenType, value: String, location: Location) -> Token {
+		Token {
+			token_type,
+			text: value,
+			value: None,
+			location,
+		}
+	}
+
+	pub fn with_value(
+		token_type: TokenType,
+		text: String,
+		value: Value,
+		location: Location,
+	) -> Token {
+		Token {
+			token_type,
+			text,
+			value: Some(value),
+			location,
+		}
+	}
+}
+
+impl Display for Token {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let token_type = self.token_type;
+
+		let text = match self.token_type {
+			TokenType::UnknownChar => format!(
+				"[{}:{}]: Unexpected character: {}",
+				self.location.line, self.location.column, self.text,
+			),
+			TokenType::UnterminatedString => format!(
+				"[{}:{}]: Unterminated string: {}",
+				self.location.line, self.location.column, self.text,
+			),
+			_ => self.text.clone(),
+		};
+
+		let value = self.value.as_ref().map_or(String::new(), |value| format!("{value}"));
+
+		write!(f, "{token_type} {text} {value}")
+	}
 }
 
 struct Tokenizer {
@@ -99,6 +284,20 @@ impl Tokenizer {
 		token
 	}
 
+	fn get_token_with_value(&mut self, token_type: TokenType, value: Value) -> Token {
+		let token = Token::with_value(
+			token_type,
+			self.buffer.clone(),
+			value,
+			self.start_location.clone(),
+		);
+
+		self.buffer.clear();
+		self.start_location = self.current_location.clone();
+
+		token
+	}
+
 	fn get_string_token(&mut self) -> Token {
 		while self.peek() != Some('"') && self.peek() != None {
 			self.advance(false);
@@ -109,7 +308,11 @@ impl Tokenizer {
 		} else {
 			// consume the closing quote
 			self.advance(false);
-			self.get_token(TokenType::String)
+
+			self.get_token_with_value(
+				TokenType::String,
+				Value::String(self.buffer[1..self.buffer.len() - 1].to_string()),
+			)
 		}
 	}
 
@@ -127,11 +330,18 @@ impl Tokenizer {
 			}
 		}
 
-		self.get_token(TokenType::Number)
+		self.get_token_with_value(
+			TokenType::Number,
+			Value::Number(self.buffer.parse::<f64>().unwrap()),
+		)
 	}
 
 	fn get_identifier_token(&mut self) -> Token {
-		while self.peek().take_if(|&mut it| it == '_' || it.is_ascii_alphanumeric()) != None {
+		while self
+			.peek()
+			.take_if(|&mut it| it == '_' || it.is_ascii_alphanumeric())
+			!= None
+		{
 			self.advance(true);
 		}
 
@@ -233,6 +443,10 @@ impl Iterator for Tokenizer {
 			_ => Some(self.get_token(TokenType::UnknownChar)),
 		})
 	}
+}
+
+pub fn tokenize(source: &str) -> Vec<Token> {
+	Tokenizer::new(source).collect::<Vec<Token>>()
 }
 
 mod tests {
@@ -524,9 +738,10 @@ mod tests {
 	pub fn strings() {
 		let input = "\"test\"\"test";
 		let expected = vec![
-			Token::new(
+			Token::with_value(
 				TokenType::String,
 				String::from("\"test\""),
+				Value::String(String::from("test")),
 				Location { line: 1, column: 1 },
 			),
 			Token::new(
@@ -545,9 +760,10 @@ mod tests {
 	pub fn numbers() {
 		let input = "420.69\n.5\n5.";
 		let expected = vec![
-			Token::new(
+			Token::with_value(
 				TokenType::Number,
 				String::from("420.69"),
+				Value::Number(420.69),
 				Location { line: 1, column: 1 },
 			),
 			Token::new(
@@ -555,14 +771,16 @@ mod tests {
 				String::from("."),
 				Location { line: 2, column: 1 },
 			),
-			Token::new(
+			Token::with_value(
 				TokenType::Number,
 				String::from("5"),
+				Value::Number(5.),
 				Location { line: 2, column: 2 },
 			),
-			Token::new(
+			Token::with_value(
 				TokenType::Number,
 				String::from("5"),
+				Value::Number(5.),
 				Location { line: 3, column: 1 },
 			),
 			Token::new(
@@ -580,9 +798,11 @@ mod tests {
 	#[test]
 	pub fn identifiers() {
 		let input = "orchid";
-		let expected = vec![
-			Token::new(TokenType::Identifier, String::from("orchid"), Location { line: 1, column: 1 }),
-		];
+		let expected = vec![Token::new(
+			TokenType::Identifier,
+			String::from("orchid"),
+			Location { line: 1, column: 1 },
+		)];
 
 		let actual = tokenize(input);
 
@@ -593,22 +813,128 @@ mod tests {
 	pub fn keywords() {
 		let input = "and class else false for fun if nil or print return super this true var while";
 		let expected = vec![
-			Token::new(TokenType::And, String::from("and"), Location { line: 1, column: 1 }),
-			Token::new(TokenType::Class, String::from("class"), Location { line: 1, column: 5 }),
-			Token::new(TokenType::Else, String::from("else"), Location { line: 1, column: 11 }),
-			Token::new(TokenType::False, String::from("false"), Location { line: 1, column: 16 }),
-			Token::new(TokenType::For, String::from("for"), Location { line: 1, column: 22 }),
-			Token::new(TokenType::Fun, String::from("fun"), Location { line: 1, column: 26 }),
-			Token::new(TokenType::If, String::from("if"), Location { line: 1, column: 30 }),
-			Token::new(TokenType::Nil, String::from("nil"), Location { line: 1, column: 33 }),
-			Token::new(TokenType::Or, String::from("or"), Location { line: 1, column: 37 }),
-			Token::new(TokenType::Print, String::from("print"), Location { line: 1, column: 40 }),
-			Token::new(TokenType::Return, String::from("return"), Location { line: 1, column: 46 }),
-			Token::new(TokenType::Super, String::from("super"), Location { line: 1, column: 53 }),
-			Token::new(TokenType::This, String::from("this"), Location { line: 1, column: 59 }),
-			Token::new(TokenType::True, String::from("true"), Location { line: 1, column: 64 }),
-			Token::new(TokenType::Var, String::from("var"), Location { line: 1, column: 69 }),
-			Token::new(TokenType::While, String::from("while"), Location { line: 1, column: 73 }),
+			Token::new(
+				TokenType::And,
+				String::from("and"),
+				Location { line: 1, column: 1 },
+			),
+			Token::new(
+				TokenType::Class,
+				String::from("class"),
+				Location { line: 1, column: 5 },
+			),
+			Token::new(
+				TokenType::Else,
+				String::from("else"),
+				Location {
+					line: 1,
+					column: 11,
+				},
+			),
+			Token::new(
+				TokenType::False,
+				String::from("false"),
+				Location {
+					line: 1,
+					column: 16,
+				},
+			),
+			Token::new(
+				TokenType::For,
+				String::from("for"),
+				Location {
+					line: 1,
+					column: 22,
+				},
+			),
+			Token::new(
+				TokenType::Fun,
+				String::from("fun"),
+				Location {
+					line: 1,
+					column: 26,
+				},
+			),
+			Token::new(
+				TokenType::If,
+				String::from("if"),
+				Location {
+					line: 1,
+					column: 30,
+				},
+			),
+			Token::new(
+				TokenType::Nil,
+				String::from("nil"),
+				Location {
+					line: 1,
+					column: 33,
+				},
+			),
+			Token::new(
+				TokenType::Or,
+				String::from("or"),
+				Location {
+					line: 1,
+					column: 37,
+				},
+			),
+			Token::new(
+				TokenType::Print,
+				String::from("print"),
+				Location {
+					line: 1,
+					column: 40,
+				},
+			),
+			Token::new(
+				TokenType::Return,
+				String::from("return"),
+				Location {
+					line: 1,
+					column: 46,
+				},
+			),
+			Token::new(
+				TokenType::Super,
+				String::from("super"),
+				Location {
+					line: 1,
+					column: 53,
+				},
+			),
+			Token::new(
+				TokenType::This,
+				String::from("this"),
+				Location {
+					line: 1,
+					column: 59,
+				},
+			),
+			Token::new(
+				TokenType::True,
+				String::from("true"),
+				Location {
+					line: 1,
+					column: 64,
+				},
+			),
+			Token::new(
+				TokenType::Var,
+				String::from("var"),
+				Location {
+					line: 1,
+					column: 69,
+				},
+			),
+			Token::new(
+				TokenType::While,
+				String::from("while"),
+				Location {
+					line: 1,
+					column: 73,
+				},
+			),
 		];
 
 		let actual = tokenize(input);
