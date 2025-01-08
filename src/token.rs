@@ -55,6 +55,9 @@ pub enum TokenType {
 	True,
 	Var,
 	While,
+
+	// Other
+	Comment,
 }
 
 impl Display for TokenType {
@@ -63,6 +66,8 @@ impl Display for TokenType {
 			f,
 			"{}",
 			match self {
+				TokenType::Unknown => "ERROR",
+
 				TokenType::LeftParen => "LEFT_PAREN",
 				TokenType::RightParen => "RIGHT_PAREN",
 				TokenType::LeftBrace => "LEFT_BRACE",
@@ -105,7 +110,7 @@ impl Display for TokenType {
 				TokenType::Var => "VAR",
 				TokenType::While => "WHILE",
 
-				TokenType::Unknown => "ERROR",
+				TokenType::Comment => "COMMENT",
 			}
 		)
 	}
