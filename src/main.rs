@@ -24,7 +24,7 @@ pub fn main() {
 			});
 			
 			for token in tokenize(&source) {
-				if token.token_type == TokenType::Unknown {
+				if token.token_type == TokenType::UnknownChar {
 					eprintln!("{token}");
 				}
 				else {

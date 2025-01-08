@@ -70,6 +70,21 @@ impl<Source: Iterator<Item = char>> Tokenizer<Source> {
 			self.start_location = self.current_location.clone();
 		})
 	}
+	
+	fn get_string_token(&mut self) -> Token {
+		while self.peek() != Some(&'"') && self.peek() != None {
+			self.advance(false);
+		}
+		
+		if self.peek() == None {
+			self.get_token(TokenType::UnterminatedString)
+		}
+		else {
+			// consume the closing quote
+			self.advance(false);
+			self.get_token(TokenType::String)
+		}
+	}
 }
 
 impl<Source: Iterator<Item = char>> Iterator for Tokenizer<Source> {
@@ -96,6 +111,7 @@ impl<Source: Iterator<Item = char>> Iterator for Tokenizer<Source> {
 				};
 				Some(self.get_token(token_type))
 			}
+			
 			'=' => {
 				let token_type = if self.advance_if('=') {
 					TokenType::EqualEqual
@@ -104,6 +120,7 @@ impl<Source: Iterator<Item = char>> Iterator for Tokenizer<Source> {
 				};
 				Some(self.get_token(token_type))
 			}
+			
 			'<' => {
 				let token_type = if self.advance_if('=') {
 					TokenType::LessEqual
@@ -112,6 +129,7 @@ impl<Source: Iterator<Item = char>> Iterator for Tokenizer<Source> {
 				};
 				Some(self.get_token(token_type))
 			}
+			
 			'>' => {
 				let token_type = if self.advance_if('=') {
 					TokenType::GreaterEqual
@@ -131,10 +149,12 @@ impl<Source: Iterator<Item = char>> Iterator for Tokenizer<Source> {
 					Some(self.get_token(TokenType::Slash))
 				}
 			}
+			
+			'"' => Some(self.get_string_token()),
 
-			_ if c.is_whitespace() => self.next(),
+			_ if c.is_ascii_whitespace() => self.next(),
 
-			_ => Some(self.get_token(TokenType::Unknown)),
+			_ => Some(self.get_token(TokenType::UnknownChar)),
 		})
 	}
 }
@@ -305,7 +325,7 @@ mod tests {
 	}
 
 	#[test]
-	pub fn errors() {
+	pub fn unknown_character() {
 		let input = ".,$(#";
 		let expected = vec![
 			Token::new(
@@ -319,7 +339,7 @@ mod tests {
 				Location { line: 1, column: 2 },
 			),
 			Token::new(
-				TokenType::Unknown,
+				TokenType::UnknownChar,
 				String::from("$"),
 				Location { line: 1, column: 3 },
 			),
@@ -329,7 +349,7 @@ mod tests {
 				Location { line: 1, column: 4 },
 			),
 			Token::new(
-				TokenType::Unknown,
+				TokenType::UnknownChar,
 				String::from("#"),
 				Location { line: 1, column: 5 },
 			),
@@ -421,6 +441,19 @@ mod tests {
 
 		let actual = tokenize(input);
 
+		assert_eq!(expected, actual);
+	}
+	
+	#[test]
+	pub fn strings() {
+		let input = "\"test\"\"test";
+		let expected = vec![
+			Token::new(TokenType::String, String::from("\"test\""), Location { line: 1, column: 1 }),
+			Token::new(TokenType::UnterminatedString, String::from("\"test"), Location { line: 1, column: 7 }),
+		];
+		
+		let actual = tokenize(input);
+		
 		assert_eq!(expected, actual);
 	}
 }

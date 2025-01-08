@@ -8,8 +8,6 @@ pub struct Location {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TokenType {
-	Unknown,
-
 	// Single-character tokens
 	LeftParen,
 	RightParen,
@@ -58,6 +56,10 @@ pub enum TokenType {
 
 	// Other
 	Comment,
+
+	// Error
+	UnknownChar,
+	UnterminatedString,
 }
 
 impl Display for TokenType {
@@ -66,8 +68,6 @@ impl Display for TokenType {
 			f,
 			"{}",
 			match self {
-				TokenType::Unknown => "ERROR",
-
 				TokenType::LeftParen => "LEFT_PAREN",
 				TokenType::RightParen => "RIGHT_PAREN",
 				TokenType::LeftBrace => "LEFT_BRACE",
@@ -111,6 +111,9 @@ impl Display for TokenType {
 				TokenType::While => "WHILE",
 
 				TokenType::Comment => "COMMENT",
+
+				TokenType::UnknownChar => "UNEXPECTED_CHAR",
+				TokenType::UnterminatedString => "UNTERMINATED_STRING",
 			}
 		)
 	}
@@ -119,7 +122,7 @@ impl Display for TokenType {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
 	pub token_type: TokenType,
-	pub value: String,
+	pub text: String,
 	pub location: Location,
 }
 
@@ -127,7 +130,7 @@ impl Token {
 	pub fn new(token_type: TokenType, value: String, location: Location) -> Token {
 		Token {
 			token_type,
-			value,
+			text: value,
 			location,
 		}
 	}
@@ -137,11 +140,15 @@ impl Display for Token {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let token_type = self.token_type;
 		let value = match self.token_type {
-			TokenType::Unknown => format!(
+			TokenType::UnknownChar => format!(
 				"[{}:{}]: Unexpected character: {}",
-				self.value, self.location.line, self.location.column
+				self.location.line, self.location.column, self.text,
 			),
-			_ => self.value.clone(),
+			TokenType::UnterminatedString => format!(
+				"[{}:{}]: Unterminated string: {}",
+				self.location.line, self.location.column, self.text,
+			),
+			_ => self.text.clone(),
 		};
 		write!(f, "{token_type} {value}")
 	}
