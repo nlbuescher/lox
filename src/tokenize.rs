@@ -230,7 +230,7 @@ impl Tokenizer {
 		}
 	}
 
-	fn advance(&mut self, ignore_whitespace: bool) -> Option<char> {
+	fn advance(&mut self, include_whitespace: bool) -> Option<char> {
 		let next;
 
 		if self.position < self.source.len() {
@@ -258,7 +258,7 @@ impl Tokenizer {
 				_ => self.current_location.column += 1,
 			}
 
-			if ignore_whitespace && c.is_whitespace() {
+			if !include_whitespace && c.is_whitespace() {
 				self.start_location = self.current_location.clone();
 				self.buffer.clear();
 			}
@@ -276,7 +276,7 @@ impl Tokenizer {
 					false
 				}
 				else {
-					self.advance(true);
+					self.advance(false);
 					true
 				}
 			}
@@ -298,7 +298,7 @@ impl Tokenizer {
 
 	fn get_string_token(&mut self) -> AnnotatedToken {
 		while self.peek() != Some('"') && self.peek() != None {
-			self.advance(false);
+			self.advance(true);
 		}
 
 		if self.peek() == None {
@@ -306,7 +306,7 @@ impl Tokenizer {
 		}
 		else {
 			// consume the closing quote
-			self.advance(false);
+			self.advance(true);
 
 			self.annotate_token(Token::String {
 				text: self.buffer.clone(),
@@ -317,15 +317,15 @@ impl Tokenizer {
 
 	fn get_number_token(&mut self) -> AnnotatedToken {
 		while self.peek().take_if(|it| it.is_ascii_digit()) != None {
-			self.advance(true);
+			self.advance(false);
 		}
 
 		if self.peek() == Some('.') && self.peek_next().take_if(|it| it.is_ascii_digit()) != None {
 			// Consume the decimal point
-			self.advance(true);
+			self.advance(false);
 
 			while self.peek().take_if(|it| it.is_ascii_digit()) != None {
-				self.advance(true);
+				self.advance(false);
 			}
 		}
 
@@ -337,7 +337,7 @@ impl Tokenizer {
 
 	fn get_identifier_token(&mut self) -> AnnotatedToken {
 		while self.peek().take_if(|&mut it| it == '_' || it.is_ascii_alphanumeric()) != None {
-			self.advance(true);
+			self.advance(false);
 		}
 
 		match self.buffer.as_str() {
@@ -366,7 +366,7 @@ impl Iterator for Tokenizer {
 	type Item = AnnotatedToken;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		self.advance(true).and_then(|c| match c {
+		self.advance(false).and_then(|c| match c {
 			'(' => Some(self.annotate_token(Token::LeftParen)),
 			')' => Some(self.annotate_token(Token::RightParen)),
 			'{' => Some(self.annotate_token(Token::LeftBrace)),
@@ -401,7 +401,7 @@ impl Iterator for Tokenizer {
 			'/' => {
 				if self.advance_if('/') {
 					while self.peek() != Some('\n') && self.peek() != None {
-						self.advance(false);
+						self.advance(true);
 					}
 					Some(self.annotate_token(Token::Comment { text: self.buffer.clone() }))
 				}
