@@ -26,6 +26,7 @@ pub fn main() {
 					Token::UnknownChar { .. } | Token::UnterminatedString { .. } => {
 						eprintln!("{token}")
 					}
+
 					_ => println!("{token}"),
 				}
 			}
