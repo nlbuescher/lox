@@ -63,170 +63,6 @@ pub enum Token {
 }
 
 impl Token {
-	pub fn left_paren(location: Location) -> Token {
-		Token::LeftParen { location }
-	}
-
-	pub fn right_paren(location: Location) -> Token {
-		Token::RightParen { location }
-	}
-
-	pub fn left_brace(location: Location) -> Token {
-		Token::LeftBrace { location }
-	}
-
-	pub fn right_brace(location: Location) -> Token {
-		Token::RightBrace { location }
-	}
-
-	pub fn comma(location: Location) -> Token {
-		Token::Comma { location }
-	}
-
-	pub fn dot(location: Location) -> Token {
-		Token::Dot { location }
-	}
-
-	pub fn minus(location: Location) -> Token {
-		Token::Minus { location }
-	}
-
-	pub fn plus(location: Location) -> Token {
-		Token::Plus { location }
-	}
-
-	pub fn semicolon(location: Location) -> Token {
-		Token::Semicolon { location }
-	}
-
-	pub fn slash(location: Location) -> Token {
-		Token::Slash { location }
-	}
-
-	pub fn star(location: Location) -> Token {
-		Token::Star { location }
-	}
-
-	pub fn bang(location: Location) -> Token {
-		Token::Bang { location }
-	}
-
-	pub fn bang_equal(location: Location) -> Token {
-		Token::BangEqual { location }
-	}
-
-	pub fn equal(location: Location) -> Token {
-		Token::Equal { location }
-	}
-
-	pub fn equal_equal(location: Location) -> Token {
-		Token::EqualEqual { location }
-	}
-
-	pub fn greater(location: Location) -> Token {
-		Token::Greater { location }
-	}
-
-	pub fn greater_equal(location: Location) -> Token {
-		Token::GreaterEqual { location }
-	}
-
-	pub fn less(location: Location) -> Token {
-		Token::Less { location }
-	}
-
-	pub fn less_equal(location: Location) -> Token {
-		Token::LessEqual { location }
-	}
-
-	pub fn identifier(location: Location, text: String) -> Token {
-		Token::Identifier { location, text }
-	}
-
-	pub fn string(location: Location, text: String, value: String) -> Token {
-		Token::String { location, text, value }
-	}
-
-	pub fn number(location: Location, text: String, value: f64) -> Token {
-		Token::Number { location, text, value }
-	}
-
-	pub fn and(location: Location) -> Token {
-		Token::And { location }
-	}
-
-	pub fn class(location: Location) -> Token {
-		Token::Class { location }
-	}
-
-	pub fn else_(location: Location) -> Token {
-		Token::Else { location }
-	}
-
-	pub fn false_(location: Location) -> Token {
-		Token::False { location }
-	}
-
-	pub fn fun(location: Location) -> Token {
-		Token::Fun { location }
-	}
-
-	pub fn for_(location: Location) -> Token {
-		Token::For { location }
-	}
-
-	pub fn if_(location: Location) -> Token {
-		Token::If { location }
-	}
-
-	pub fn nil(location: Location) -> Token {
-		Token::Nil { location }
-	}
-
-	pub fn or(location: Location) -> Token {
-		Token::Or { location }
-	}
-
-	pub fn print(location: Location) -> Token {
-		Token::Print { location }
-	}
-
-	pub fn return_(location: Location) -> Token {
-		Token::Return { location }
-	}
-
-	pub fn super_(location: Location) -> Token {
-		Token::Super { location }
-	}
-
-	pub fn this(location: Location) -> Token {
-		Token::This { location }
-	}
-
-	pub fn true_(location: Location) -> Token {
-		Token::True { location }
-	}
-
-	pub fn var(location: Location) -> Token {
-		Token::Var { location }
-	}
-
-	pub fn while_(location: Location) -> Token {
-		Token::While { location }
-	}
-
-	pub fn comment(location: Location, text: String) -> Token {
-		Token::Comment { text, location }
-	}
-
-	pub fn unknown_char(location: Location, text: String) -> Token {
-		Token::UnknownChar { text, location }
-	}
-
-	pub fn unterminated_string(location: Location, text: String) -> Token {
-		Token::UnterminatedString { text, location }
-	}
-
 	fn name(&self) -> &str {
 		match self {
 			Token::LeftParen { .. } => "LEFT_PAREN",
@@ -465,7 +301,7 @@ impl Tokenizer {
 		next
 	}
 
-	/// returns: whether the tokenizer advanced or not
+	/// returns: whether the tokenizer advanced
 	fn advance_if(&mut self, expected: char) -> bool {
 		match self.peek() {
 			None => false,
@@ -511,17 +347,17 @@ impl Tokenizer {
 		}
 
 		if self.peek() == None {
-			self.get_token_with_text(Token::unterminated_string)
+			self.get_token_with_text(|location, text| Token::UnterminatedString { location, text })
 		}
 		else {
 			// consume the closing quote
 			self.advance(false);
 
-			let token = Token::string(
-				self.start_location.clone(),
-				self.buffer.clone(),
-				self.buffer[1..self.buffer.len() - 1].to_string(),
-			);
+			let token = Token::String {
+				location: self.start_location.clone(),
+				text: self.buffer.clone(),
+				value: self.buffer[1..self.buffer.len() - 1].to_string(),
+			};
 
 			self.reset();
 
@@ -543,11 +379,11 @@ impl Tokenizer {
 			}
 		}
 
-		let token = Token::number(
-			self.start_location.clone(),
-			self.buffer.clone(),
-			self.buffer.parse::<f64>().unwrap(),
-		);
+		let token = Token::Number {
+			location: self.start_location.clone(),
+			text: self.buffer.clone(),
+			value: self.buffer.parse::<f64>().unwrap(),
+		};
 
 		self.reset();
 
@@ -560,23 +396,23 @@ impl Tokenizer {
 		}
 
 		match self.buffer.as_str() {
-			"and" => self.get_token(Token::and),
-			"class" => self.get_token(Token::class),
-			"else" => self.get_token(Token::else_),
-			"false" => self.get_token(Token::false_),
-			"for" => self.get_token(Token::for_),
-			"fun" => self.get_token(Token::fun),
-			"if" => self.get_token(Token::if_),
-			"nil" => self.get_token(Token::nil),
-			"or" => self.get_token(Token::or),
-			"print" => self.get_token(Token::print),
-			"return" => self.get_token(Token::return_),
-			"super" => self.get_token(Token::super_),
-			"this" => self.get_token(Token::this),
-			"true" => self.get_token(Token::true_),
-			"var" => self.get_token(Token::var),
-			"while" => self.get_token(Token::while_),
-			_ => self.get_token_with_text(Token::identifier),
+			"and" => self.get_token(|location| Token::And { location }),
+			"class" => self.get_token(|location| Token::Class { location }),
+			"else" => self.get_token(|location| Token::Else { location }),
+			"false" => self.get_token(|location| Token::False { location }),
+			"for" => self.get_token(|location| Token::For { location }),
+			"fun" => self.get_token(|location| Token::Fun { location }),
+			"if" => self.get_token(|location| Token::If { location }),
+			"nil" => self.get_token(|location| Token::Nil { location }),
+			"or" => self.get_token(|location| Token::Or { location }),
+			"print" => self.get_token(|location| Token::Print { location }),
+			"return" => self.get_token(|location| Token::Return { location }),
+			"super" => self.get_token(|location| Token::Super { location }),
+			"this" => self.get_token(|location| Token::This { location }),
+			"true" => self.get_token(|location| Token::True { location }),
+			"var" => self.get_token(|location| Token::Var { location }),
+			"while" => self.get_token(|location| Token::While { location }),
+			_ => self.get_token_with_text(|location, text| Token::Identifier { location, text }),
 		}
 	}
 }
@@ -586,37 +422,59 @@ impl Iterator for Tokenizer {
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.advance(true).and_then(|c| match c {
-			'(' => Some(self.get_token(Token::left_paren)),
-			')' => Some(self.get_token(Token::right_paren)),
-			'{' => Some(self.get_token(Token::left_brace)),
-			'}' => Some(self.get_token(Token::right_brace)),
-			',' => Some(self.get_token(Token::comma)),
-			'.' => Some(self.get_token(Token::dot)),
-			'-' => Some(self.get_token(Token::minus)),
-			'+' => Some(self.get_token(Token::plus)),
-			';' => Some(self.get_token(Token::semicolon)),
-			'*' => Some(self.get_token(Token::star)),
+			'(' => Some(self.get_token(|location| Token::LeftParen { location })),
+			')' => Some(self.get_token(|location| Token::RightParen { location })),
+			'{' => Some(self.get_token(|location| Token::LeftBrace { location })),
+			'}' => Some(self.get_token(|location| Token::RightBrace { location })),
+			',' => Some(self.get_token(|location| Token::Comma { location })),
+			'.' => Some(self.get_token(|location| Token::Dot { location })),
+			'-' => Some(self.get_token(|location| Token::Minus { location })),
+			'+' => Some(self.get_token(|location| Token::Plus { location })),
+			';' => Some(self.get_token(|location| Token::Semicolon { location })),
+			'*' => Some(self.get_token(|location| Token::Star { location })),
 
 			'!' => {
-				let token_type = if self.advance_if('=') { Token::bang_equal } else { Token::bang };
-				Some(self.get_token(token_type))
+				let token_fun = if self.advance_if('=') {
+					|location| Token::BangEqual { location }
+				}
+				else {
+					|location| Token::Bang { location }
+				};
+
+				Some(self.get_token(token_fun))
 			}
 
 			'=' => {
-				let token_type =
-					if self.advance_if('=') { Token::equal_equal } else { Token::equal };
-				Some(self.get_token(token_type))
-			}
+				let token_fun = if self.advance_if('=') {
+					|location| Token::EqualEqual { location }
+				}
+				else {
+					|location| Token::Equal { location }
+				};
 
-			'<' => {
-				let token_type = if self.advance_if('=') { Token::less_equal } else { Token::less };
-				Some(self.get_token(token_type))
+				Some(self.get_token(token_fun))
 			}
 
 			'>' => {
-				let token_type =
-					if self.advance_if('=') { Token::greater_equal } else { Token::greater };
-				Some(self.get_token(token_type))
+				let token_fun = if self.advance_if('=') {
+					|location| Token::GreaterEqual { location }
+				}
+				else {
+					|location| Token::Greater { location }
+				};
+
+				Some(self.get_token(token_fun))
+			}
+
+			'<' => {
+				let token_fun = if self.advance_if('=') {
+					|location| Token::LessEqual { location }
+				}
+				else {
+					|location| Token::Less { location }
+				};
+
+				Some(self.get_token(token_fun))
 			}
 
 			'/' => {
@@ -624,10 +482,15 @@ impl Iterator for Tokenizer {
 					while self.peek() != Some('\n') && self.peek() != None {
 						self.advance(false);
 					}
-					Some(self.get_token_with_text(Token::comment))
+					Some(
+						self.get_token_with_text(|location, text| Token::Comment {
+							location,
+							text,
+						}),
+					)
 				}
 				else {
-					Some(self.get_token(Token::slash))
+					Some(self.get_token(|location| Token::Slash { location }))
 				}
 			}
 
@@ -639,7 +502,9 @@ impl Iterator for Tokenizer {
 
 			_ if c == '_' || c.is_ascii_alphabetic() => Some(self.get_identifier_token()),
 
-			_ => Some(self.get_token_with_text(Token::unknown_char)),
+			_ => Some(
+				self.get_token_with_text(|location, text| Token::UnknownChar { location, text }),
+			),
 		})
 	}
 }
@@ -665,9 +530,9 @@ mod tests {
 	pub fn parentheses() {
 		let input = "(()";
 		let expected = vec![
-			Token::left_paren(Location { line: 1, column: 1 }),
-			Token::left_paren(Location { line: 1, column: 2 }),
-			Token::right_paren(Location { line: 1, column: 3 }),
+			Token::LeftParen { location: Location { line: 1, column: 1 } },
+			Token::LeftParen { location: Location { line: 1, column: 2 } },
+			Token::RightParen { location: Location { line: 1, column: 3 } },
 		];
 
 		let actual = tokenize(input);
@@ -678,7 +543,7 @@ mod tests {
 	#[test]
 	pub fn whitespace() {
 		let input = " \t(";
-		let expected = vec![Token::left_paren(Location { line: 1, column: 5 })];
+		let expected = vec![Token::LeftParen { location: Location { line: 1, column: 5 } }];
 
 		let actual = tokenize(input);
 
@@ -688,7 +553,7 @@ mod tests {
 	#[test]
 	pub fn newlines() {
 		let input = "\r\n\r\n  (";
-		let expected = vec![Token::left_paren(Location { line: 3, column: 3 })];
+		let expected = vec![Token::LeftParen { location: Location { line: 3, column: 3 } }];
 
 		let actual = tokenize(input);
 
@@ -699,10 +564,10 @@ mod tests {
 	pub fn braces() {
 		let input = "{{}}";
 		let expected = vec![
-			Token::left_brace(Location { line: 1, column: 1 }),
-			Token::left_brace(Location { line: 1, column: 2 }),
-			Token::right_brace(Location { line: 1, column: 3 }),
-			Token::right_brace(Location { line: 1, column: 4 }),
+			Token::LeftBrace { location: Location { line: 1, column: 1 } },
+			Token::LeftBrace { location: Location { line: 1, column: 2 } },
+			Token::RightBrace { location: Location { line: 1, column: 3 } },
+			Token::RightBrace { location: Location { line: 1, column: 4 } },
 		];
 
 		let actual = tokenize(input);
@@ -714,16 +579,16 @@ mod tests {
 	pub fn other_single_character_tokens() {
 		let input = "({+.*,- ;})";
 		let expected = vec![
-			Token::left_paren(Location { line: 1, column: 1 }),
-			Token::left_brace(Location { line: 1, column: 2 }),
-			Token::plus(Location { line: 1, column: 3 }),
-			Token::dot(Location { line: 1, column: 4 }),
-			Token::star(Location { line: 1, column: 5 }),
-			Token::comma(Location { line: 1, column: 6 }),
-			Token::minus(Location { line: 1, column: 7 }),
-			Token::semicolon(Location { line: 1, column: 9 }),
-			Token::right_brace(Location { line: 1, column: 10 }),
-			Token::right_paren(Location { line: 1, column: 11 }),
+			Token::LeftParen { location: Location { line: 1, column: 1 } },
+			Token::LeftBrace { location: Location { line: 1, column: 2 } },
+			Token::Plus { location: Location { line: 1, column: 3 } },
+			Token::Dot { location: Location { line: 1, column: 4 } },
+			Token::Star { location: Location { line: 1, column: 5 } },
+			Token::Comma { location: Location { line: 1, column: 6 } },
+			Token::Minus { location: Location { line: 1, column: 7 } },
+			Token::Semicolon { location: Location { line: 1, column: 9 } },
+			Token::RightBrace { location: Location { line: 1, column: 10 } },
+			Token::RightParen { location: Location { line: 1, column: 11 } },
 		];
 
 		let actual = tokenize(input);
@@ -735,11 +600,17 @@ mod tests {
 	pub fn unknown_character() {
 		let input = ".,$(#";
 		let expected = vec![
-			Token::dot(Location { line: 1, column: 1 }),
-			Token::comma(Location { line: 1, column: 2 }),
-			Token::unknown_char(Location { line: 1, column: 3 }, String::from("$")),
-			Token::left_paren(Location { line: 1, column: 4 }),
-			Token::unknown_char(Location { line: 1, column: 5 }, String::from("#")),
+			Token::Dot { location: Location { line: 1, column: 1 } },
+			Token::Comma { location: Location { line: 1, column: 2 } },
+			Token::UnknownChar {
+				location: Location { line: 1, column: 3 },
+				text: String::from("$"),
+			},
+			Token::LeftParen { location: Location { line: 1, column: 4 } },
+			Token::UnknownChar {
+				location: Location { line: 1, column: 5 },
+				text: String::from("#"),
+			},
 		];
 
 		let actual = tokenize(input);
@@ -751,14 +622,14 @@ mod tests {
 	pub fn operators() {
 		let input = "! != = == > >= < <=";
 		let expected = vec![
-			Token::bang(Location { line: 1, column: 1 }),
-			Token::bang_equal(Location { line: 1, column: 3 }),
-			Token::equal(Location { line: 1, column: 6 }),
-			Token::equal_equal(Location { line: 1, column: 8 }),
-			Token::greater(Location { line: 1, column: 11 }),
-			Token::greater_equal(Location { line: 1, column: 13 }),
-			Token::less(Location { line: 1, column: 16 }),
-			Token::less_equal(Location { line: 1, column: 18 }),
+			Token::Bang { location: Location { line: 1, column: 1 } },
+			Token::BangEqual { location: Location { line: 1, column: 3 } },
+			Token::Equal { location: Location { line: 1, column: 6 } },
+			Token::EqualEqual { location: Location { line: 1, column: 8 } },
+			Token::Greater { location: Location { line: 1, column: 11 } },
+			Token::GreaterEqual { location: Location { line: 1, column: 13 } },
+			Token::Less { location: Location { line: 1, column: 16 } },
+			Token::LessEqual { location: Location { line: 1, column: 18 } },
 		];
 
 		let actual = tokenize(input);
@@ -770,8 +641,11 @@ mod tests {
 	pub fn comments() {
 		let input = "// comment\n/";
 		let expected = vec![
-			Token::comment(Location { line: 1, column: 1 }, String::from("// comment")),
-			Token::slash(Location { line: 2, column: 1 }),
+			Token::Comment {
+				location: Location { line: 1, column: 1 },
+				text: String::from("// comment"),
+			},
+			Token::Slash { location: Location { line: 2, column: 1 } },
 		];
 
 		let actual = tokenize(input);
@@ -783,12 +657,15 @@ mod tests {
 	pub fn strings() {
 		let input = "\"test\"\"test";
 		let expected = vec![
-			Token::string(
-				Location { line: 1, column: 1 },
-				String::from("\"test\""),
-				String::from("test"),
-			),
-			Token::unterminated_string(Location { line: 1, column: 7 }, String::from("\"test")),
+			Token::String {
+				location: Location { line: 1, column: 1 },
+				text: String::from("\"test\""),
+				value: String::from("test"),
+			},
+			Token::UnterminatedString {
+				location: Location { line: 1, column: 7 },
+				text: String::from("\"test"),
+			},
 		];
 
 		let actual = tokenize(input);
@@ -800,11 +677,23 @@ mod tests {
 	pub fn numbers() {
 		let input = "420.69\n.5\n5.";
 		let expected = vec![
-			Token::number(Location { line: 1, column: 1 }, String::from("420.69"), 420.69),
-			Token::dot(Location { line: 2, column: 1 }),
-			Token::number(Location { line: 2, column: 2 }, String::from("5"), 5.),
-			Token::number(Location { line: 3, column: 1 }, String::from("5"), 5.),
-			Token::dot(Location { line: 3, column: 2 }),
+			Token::Number {
+				location: Location { line: 1, column: 1 },
+				text: String::from("420.69"),
+				value: 420.69,
+			},
+			Token::Dot { location: Location { line: 2, column: 1 } },
+			Token::Number {
+				location: Location { line: 2, column: 2 },
+				text: String::from("5"),
+				value: 5.,
+			},
+			Token::Number {
+				location: Location { line: 3, column: 1 },
+				text: String::from("5"),
+				value: 5.,
+			},
+			Token::Dot { location: Location { line: 3, column: 2 } },
 		];
 
 		let actual = tokenize(input);
@@ -815,8 +704,10 @@ mod tests {
 	#[test]
 	pub fn identifiers() {
 		let input = "orchid";
-		let expected =
-			vec![Token::identifier(Location { line: 1, column: 1 }, String::from("orchid"))];
+		let expected = vec![Token::Identifier {
+			location: Location { line: 1, column: 1 },
+			text: String::from("orchid"),
+		}];
 
 		let actual = tokenize(input);
 
@@ -827,22 +718,22 @@ mod tests {
 	pub fn keywords() {
 		let input = "and class else false for fun if nil or print return super this true var while";
 		let expected = vec![
-			Token::and(Location { line: 1, column: 1 }),
-			Token::class(Location { line: 1, column: 5 }),
-			Token::else_(Location { line: 1, column: 11 }),
-			Token::false_(Location { line: 1, column: 16 }),
-			Token::for_(Location { line: 1, column: 22 }),
-			Token::fun(Location { line: 1, column: 26 }),
-			Token::if_(Location { line: 1, column: 30 }),
-			Token::nil(Location { line: 1, column: 33 }),
-			Token::or(Location { line: 1, column: 37 }),
-			Token::print(Location { line: 1, column: 40 }),
-			Token::return_(Location { line: 1, column: 46 }),
-			Token::super_(Location { line: 1, column: 53 }),
-			Token::this(Location { line: 1, column: 59 }),
-			Token::true_(Location { line: 1, column: 64 }),
-			Token::var(Location { line: 1, column: 69 }),
-			Token::while_(Location { line: 1, column: 73 }),
+			Token::And { location: Location { line: 1, column: 1 } },
+			Token::Class { location: Location { line: 1, column: 5 } },
+			Token::Else { location: Location { line: 1, column: 11 } },
+			Token::False { location: Location { line: 1, column: 16 } },
+			Token::For { location: Location { line: 1, column: 22 } },
+			Token::Fun { location: Location { line: 1, column: 26 } },
+			Token::If { location: Location { line: 1, column: 30 } },
+			Token::Nil { location: Location { line: 1, column: 33 } },
+			Token::Or { location: Location { line: 1, column: 37 } },
+			Token::Print { location: Location { line: 1, column: 40 } },
+			Token::Return { location: Location { line: 1, column: 46 } },
+			Token::Super { location: Location { line: 1, column: 53 } },
+			Token::This { location: Location { line: 1, column: 59 } },
+			Token::True { location: Location { line: 1, column: 64 } },
+			Token::Var { location: Location { line: 1, column: 69 } },
+			Token::While { location: Location { line: 1, column: 73 } },
 		];
 
 		let actual = tokenize(input);
