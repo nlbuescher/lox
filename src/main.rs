@@ -1,4 +1,4 @@
-use crate::tokenize::{tokenize, TokenType};
+use crate::tokenize::{tokenize, Token};
 
 mod tokenize;
 
@@ -10,25 +10,27 @@ pub fn main() {
 		return;
 	}
 
+	let filename = &args[2];
+
+	let source = std::fs::read_to_string(filename).unwrap_or_else(|error| {
+		eprintln!("Unable to read file {filename}: {error}");
+		String::new()
+	});
+
 	let command = &args[1];
 
 	match command.as_str() {
 		"tokenize" => {
-			let filename = &args[2];
-
-			let source = std::fs::read_to_string(filename).unwrap_or_else(|error| {
-				eprintln!("Unable to read file {filename}: {error}");
-				String::new()
-			});
-
 			for token in tokenize(&source) {
-				match token.token_type {
-					TokenType::UnknownChar | TokenType::UnterminatedString => eprintln!("{token}"),
+				match token {
+					Token::UnknownChar { .. } | Token::UnterminatedString { .. } => {
+						eprintln!("{token}")
+					}
 					_ => println!("{token}"),
 				}
 			}
 		}
-		
+
 		_ => {
 			eprintln!("Unknown command: {}", command);
 		}
