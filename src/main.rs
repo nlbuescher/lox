@@ -1,4 +1,4 @@
-use crate::tokenize::{tokenize, Token};
+use crate::tokenize::*;
 
 mod tokenize;
 
@@ -23,7 +23,10 @@ pub fn main() {
 		"tokenize" => {
 			for token in tokenize(&source) {
 				match token {
-					Token::UnknownChar { .. } | Token::UnterminatedString { .. } => {
+					AnnotatedToken {
+						token: Token::UnknownChar { .. } | Token::UnterminatedString { .. },
+						..
+					} => {
 						eprintln!("{token}")
 					}
 
