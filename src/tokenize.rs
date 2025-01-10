@@ -1,4 +1,5 @@
 use std::fmt::Display;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
 	// Single-character tokens
@@ -49,6 +50,7 @@ pub enum Token {
 
 	// Other
 	Comment { text: String },
+	EndOfFile,
 }
 
 impl Token {
@@ -97,6 +99,7 @@ impl Token {
 			Token::While { .. } => "WHILE",
 
 			Token::Comment { .. } => "COMMENT",
+			Token::EndOfFile => "EOF",
 		}
 	}
 
@@ -145,6 +148,7 @@ impl Token {
 			Token::While { .. } => "while",
 
 			Token::Comment { text, .. } => text,
+			Token::EndOfFile => "",
 		}
 	}
 }
@@ -152,6 +156,7 @@ impl Token {
 impl Display for Token {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
+			Token::EndOfFile => write!(f, "{}", self.name()),
 			Token::String { value, .. } => write!(f, "{} {} {}", self.name(), self.text(), value),
 			Token::Number { value, .. } => write!(f, "{} {} {}", self.name(), self.text(), value),
 			_ => write!(f, "{} {}", self.name(), self.text()),
@@ -183,6 +188,12 @@ pub struct AnnotatedToken {
 	pub location: Location,
 }
 
+impl AnnotatedToken {
+	pub fn new(location: Location, token: Token) -> AnnotatedToken {
+		AnnotatedToken { token, location }
+	}
+}
+
 impl Display for AnnotatedToken {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "{} {}", self.location, self.token)
@@ -198,17 +209,23 @@ pub enum Error {
 impl Display for Error {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Error::UnexpectedCharacter => write!(f, "Unexpected character"),
-			Error::UnterminatedString => write!(f, "Unterminated string"),
+			Error::UnexpectedCharacter => write!(f, "ERROR: Unexpected character"),
+			Error::UnterminatedString => write!(f, "ERROR: Unterminated string"),
 		}
 	}
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnnotatedError {
+	location: Location,
 	error: Error,
 	text: String,
-	location: Location,
+}
+
+impl AnnotatedError {
+	pub fn new(location: Location, error: Error, text: impl Into<String>) -> AnnotatedError {
+		AnnotatedError { error, text: text.into(), location }
+	}
 }
 
 impl Display for AnnotatedError {
@@ -220,6 +237,7 @@ impl Display for AnnotatedError {
 pub struct Tokenizer {
 	source: Vec<char>,
 	position: usize,
+	has_next: bool,
 	buffer: String,
 	start_location: Location,
 	current_location: Location,
@@ -230,6 +248,7 @@ impl Tokenizer {
 		Tokenizer {
 			source: source.chars().collect(),
 			position: 0,
+			has_next: true,
 			buffer: String::new(),
 			start_location: Location::new(1, 1),
 			current_location: Location::new(1, 1),
@@ -402,7 +421,18 @@ impl Iterator for Tokenizer {
 	type Item = Result<AnnotatedToken, AnnotatedError>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		self.advance(false).and_then(|c| match c {
+		if !self.has_next {
+			return None;
+		}
+
+		let next = self.advance(false);
+
+		if next.is_none() {
+			self.has_next = false;
+			return Some(Ok(self.annotate_token(Token::EndOfFile)));
+		}
+
+		match next.unwrap() {
 			'(' => Some(Ok(self.annotate_token(Token::LeftParen))),
 			')' => Some(Ok(self.annotate_token(Token::RightParen))),
 			'{' => Some(Ok(self.annotate_token(Token::LeftBrace))),
@@ -448,14 +478,14 @@ impl Iterator for Tokenizer {
 
 			'"' => Some(self.get_string_token()),
 
-			_ if c.is_ascii_whitespace() => self.next(),
+			c if c.is_ascii_whitespace() => self.next(),
 
-			_ if c.is_ascii_digit() => Some(Ok(self.get_number_token())),
+			c if c.is_ascii_digit() => Some(Ok(self.get_number_token())),
 
-			_ if c.is_ascii_alphabetic() || c == '_' => Some(Ok(self.get_identifier_token())),
+			c if c.is_ascii_alphabetic() || c == '_' => Some(Ok(self.get_identifier_token())),
 
 			_ => Some(Err(self.annotate_error(Error::UnexpectedCharacter))),
-		})
+		}
 	}
 }
 
@@ -465,7 +495,7 @@ mod tests {
 	#[test]
 	pub fn empty_source() {
 		let input = "";
-		let expected: Vec<Result<AnnotatedToken, AnnotatedError>> = Vec::new();
+		let expected = vec![Ok(AnnotatedToken::new(Location::new(1, 1), Token::EndOfFile))];
 
 		let actual = Tokenizer::new(input).collect::<Vec<_>>();
 
@@ -476,9 +506,10 @@ mod tests {
 	pub fn parentheses() {
 		let input = "(()";
 		let expected = vec![
-			Ok(AnnotatedToken { token: Token::LeftParen, location: Location::new(1, 1) }),
-			Ok(AnnotatedToken { token: Token::LeftParen, location: Location::new(1, 2) }),
-			Ok(AnnotatedToken { token: Token::RightParen, location: Location::new(1, 3) }),
+			Ok(AnnotatedToken::new(Location::new(1, 1), Token::LeftParen)),
+			Ok(AnnotatedToken::new(Location::new(1, 2), Token::LeftParen)),
+			Ok(AnnotatedToken::new(Location::new(1, 3), Token::RightParen)),
+			Ok(AnnotatedToken::new(Location::new(1, 4), Token::EndOfFile)),
 		];
 
 		let actual = Tokenizer::new(input).collect::<Vec<_>>();
@@ -489,11 +520,11 @@ mod tests {
 	#[test]
 	pub fn whitespace() {
 		let input = "\t(  \t(";
-		let expected =
-			vec![
-				Ok(AnnotatedToken { token: Token::LeftParen, location: Location::new(1, 5) }),
-				Ok(AnnotatedToken { token: Token::LeftParen, location: Location::new(1, 9) }),
-			];
+		let expected = vec![
+			Ok(AnnotatedToken::new(Location::new(1, 5), Token::LeftParen)),
+			Ok(AnnotatedToken::new(Location::new(1, 9), Token::LeftParen)),
+			Ok(AnnotatedToken::new(Location::new(1, 10), Token::EndOfFile)),
+		];
 
 		let actual = Tokenizer::new(input).collect::<Vec<_>>();
 
@@ -502,9 +533,11 @@ mod tests {
 
 	#[test]
 	pub fn newlines() {
-		let input = "\r\n\r\n  (";
-		let expected =
-			vec![Ok(AnnotatedToken { token: Token::LeftParen, location: Location::new(3, 3) })];
+		let input = "\r\n\r\n  (\n";
+		let expected = vec![
+			Ok(AnnotatedToken::new(Location::new(3, 3), Token::LeftParen)),
+			Ok(AnnotatedToken::new(Location::new(4, 1), Token::EndOfFile)),
+		];
 
 		let actual = Tokenizer::new(input).collect::<Vec<_>>();
 
@@ -515,10 +548,11 @@ mod tests {
 	pub fn braces() {
 		let input = "{{}}";
 		let expected = vec![
-			Ok(AnnotatedToken { token: Token::LeftBrace, location: Location::new(1, 1) }),
-			Ok(AnnotatedToken { token: Token::LeftBrace, location: Location::new(1, 2) }),
-			Ok(AnnotatedToken { token: Token::RightBrace, location: Location::new(1, 3) }),
-			Ok(AnnotatedToken { token: Token::RightBrace, location: Location::new(1, 4) }),
+			Ok(AnnotatedToken::new(Location::new(1, 1), Token::LeftBrace)),
+			Ok(AnnotatedToken::new(Location::new(1, 2), Token::LeftBrace)),
+			Ok(AnnotatedToken::new(Location::new(1, 3), Token::RightBrace)),
+			Ok(AnnotatedToken::new(Location::new(1, 4), Token::RightBrace)),
+			Ok(AnnotatedToken::new(Location::new(1, 5), Token::EndOfFile)),
 		];
 
 		let actual = Tokenizer::new(input).collect::<Vec<_>>();
@@ -530,16 +564,17 @@ mod tests {
 	pub fn other_single_character_tokens() {
 		let input = "({+.*,- ;})";
 		let expected = vec![
-			Ok(AnnotatedToken { token: Token::LeftParen, location: Location::new(1, 1) }),
-			Ok(AnnotatedToken { token: Token::LeftBrace, location: Location::new(1, 2) }),
-			Ok(AnnotatedToken { token: Token::Plus, location: Location::new(1, 3) }),
-			Ok(AnnotatedToken { token: Token::Dot, location: Location::new(1, 4) }),
-			Ok(AnnotatedToken { token: Token::Star, location: Location::new(1, 5) }),
-			Ok(AnnotatedToken { token: Token::Comma, location: Location::new(1, 6) }),
-			Ok(AnnotatedToken { token: Token::Minus, location: Location::new(1, 7) }),
-			Ok(AnnotatedToken { token: Token::Semicolon, location: Location::new(1, 9) }),
-			Ok(AnnotatedToken { token: Token::RightBrace, location: Location::new(1, 10) }),
-			Ok(AnnotatedToken { token: Token::RightParen, location: Location::new(1, 11) }),
+			Ok(AnnotatedToken::new(Location::new(1, 1), Token::LeftParen)),
+			Ok(AnnotatedToken::new(Location::new(1, 2), Token::LeftBrace)),
+			Ok(AnnotatedToken::new(Location::new(1, 3), Token::Plus)),
+			Ok(AnnotatedToken::new(Location::new(1, 4), Token::Dot)),
+			Ok(AnnotatedToken::new(Location::new(1, 5), Token::Star)),
+			Ok(AnnotatedToken::new(Location::new(1, 6), Token::Comma)),
+			Ok(AnnotatedToken::new(Location::new(1, 7), Token::Minus)),
+			Ok(AnnotatedToken::new(Location::new(1, 9), Token::Semicolon)),
+			Ok(AnnotatedToken::new(Location::new(1, 10), Token::RightBrace)),
+			Ok(AnnotatedToken::new(Location::new(1, 11), Token::RightParen)),
+			Ok(AnnotatedToken::new(Location::new(1, 12), Token::EndOfFile)),
 		];
 
 		let actual = Tokenizer::new(input).collect::<Vec<_>>();
@@ -551,19 +586,20 @@ mod tests {
 	pub fn unknown_character() {
 		let input = ".,$(#";
 		let expected = vec![
-			Ok(AnnotatedToken { token: Token::Dot, location: Location::new(1, 1) }),
-			Ok(AnnotatedToken { token: Token::Comma, location: Location::new(1, 2) }),
-			Err(AnnotatedError {
-				error: Error::UnexpectedCharacter,
-				text: String::from("$"),
-				location: Location::new(1, 3),
-			}),
-			Ok(AnnotatedToken { token: Token::LeftParen, location: Location::new(1, 4) }),
-			Err(AnnotatedError {
-				error: Error::UnexpectedCharacter,
-				text: String::from("#"),
-				location: Location::new(1, 5),
-			}),
+			Ok(AnnotatedToken::new(Location::new(1, 1), Token::Dot)),
+			Ok(AnnotatedToken::new(Location::new(1, 2), Token::Comma)),
+			Err(AnnotatedError::new(
+				Location::new(1, 3),
+				Error::UnexpectedCharacter,
+				String::from("$"),
+			)),
+			Ok(AnnotatedToken::new(Location::new(1, 4), Token::LeftParen)),
+			Err(AnnotatedError::new(
+				Location::new(1, 5),
+				Error::UnexpectedCharacter,
+				String::from("#"),
+			)),
+			Ok(AnnotatedToken::new(Location::new(1, 6), Token::EndOfFile)),
 		];
 
 		let actual = Tokenizer::new(input).collect::<Vec<_>>();
@@ -575,14 +611,15 @@ mod tests {
 	pub fn operators() {
 		let input = "! != = == > >= < <=";
 		let expected = vec![
-			Ok(AnnotatedToken { token: Token::Bang, location: Location::new(1, 1) }),
-			Ok(AnnotatedToken { token: Token::BangEqual, location: Location::new(1, 3) }),
-			Ok(AnnotatedToken { token: Token::Equal, location: Location::new(1, 6) }),
-			Ok(AnnotatedToken { token: Token::EqualEqual, location: Location::new(1, 8) }),
-			Ok(AnnotatedToken { token: Token::Greater, location: Location::new(1, 11) }),
-			Ok(AnnotatedToken { token: Token::GreaterEqual, location: Location::new(1, 13) }),
-			Ok(AnnotatedToken { token: Token::Less, location: Location::new(1, 16) }),
-			Ok(AnnotatedToken { token: Token::LessEqual, location: Location::new(1, 18) }),
+			Ok(AnnotatedToken::new(Location::new(1, 1), Token::Bang)),
+			Ok(AnnotatedToken::new(Location::new(1, 3), Token::BangEqual)),
+			Ok(AnnotatedToken::new(Location::new(1, 6), Token::Equal)),
+			Ok(AnnotatedToken::new(Location::new(1, 8), Token::EqualEqual)),
+			Ok(AnnotatedToken::new(Location::new(1, 11), Token::Greater)),
+			Ok(AnnotatedToken::new(Location::new(1, 13), Token::GreaterEqual)),
+			Ok(AnnotatedToken::new(Location::new(1, 16), Token::Less)),
+			Ok(AnnotatedToken::new(Location::new(1, 18), Token::LessEqual)),
+			Ok(AnnotatedToken::new(Location::new(1, 20), Token::EndOfFile)),
 		];
 
 		let actual = Tokenizer::new(input).collect::<Vec<_>>();
@@ -594,11 +631,12 @@ mod tests {
 	pub fn comments() {
 		let input = "// comment\n/";
 		let expected = vec![
-			Ok(AnnotatedToken {
-				token: Token::Comment { text: String::from("// comment") },
-				location: Location::new(1, 1),
-			}),
-			Ok(AnnotatedToken { token: Token::Slash, location: Location::new(2, 1) }),
+			Ok(AnnotatedToken::new(
+				Location::new(1, 1),
+				Token::Comment { text: String::from("// comment") },
+			)),
+			Ok(AnnotatedToken::new(Location::new(2, 1), Token::Slash)),
+			Ok(AnnotatedToken::new(Location::new(2, 2), Token::EndOfFile)),
 		];
 
 		let actual = Tokenizer::new(input).collect::<Vec<_>>();
@@ -610,18 +648,16 @@ mod tests {
 	pub fn strings() {
 		let input = "\"test\"\"test";
 		let expected = vec![
-			Ok(AnnotatedToken {
-				token: Token::String {
-					text: String::from("\"test\""),
-					value: String::from("test"),
-				},
-				location: Location::new(1, 1),
-			}),
-			Err(AnnotatedError {
-				error: Error::UnterminatedString,
-				text: String::from("\"test"),
-				location: Location::new(1, 7),
-			}),
+			Ok(AnnotatedToken::new(
+				Location::new(1, 1),
+				Token::String { text: "\"test\"".into(), value: String::from("test") },
+			)),
+			Err(AnnotatedError::new(
+				Location::new(1, 7),
+				Error::UnterminatedString,
+				String::from("\"test"),
+			)),
+			Ok(AnnotatedToken::new(Location::new(1, 12), Token::EndOfFile)),
 		];
 
 		let actual = Tokenizer::new(input).collect::<Vec<_>>();
@@ -633,20 +669,21 @@ mod tests {
 	pub fn numbers() {
 		let input = "420.69\n.5\n5.";
 		let expected = vec![
-			Ok(AnnotatedToken {
-				token: Token::Number { text: String::from("420.69"), value: 420.69 },
-				location: Location::new(1, 1),
-			}),
-			Ok(AnnotatedToken { token: Token::Dot, location: Location::new(2, 1) }),
-			Ok(AnnotatedToken {
-				token: Token::Number { text: String::from("5"), value: 5. },
-				location: Location::new(2, 2),
-			}),
-			Ok(AnnotatedToken {
-				token: Token::Number { text: String::from("5"), value: 5. },
-				location: Location::new(3, 1),
-			}),
-			Ok(AnnotatedToken { token: Token::Dot, location: Location::new(3, 2) }),
+			Ok(AnnotatedToken::new(
+				Location::new(1, 1),
+				Token::Number { text: "420.69".into(), value: 420.69 },
+			)),
+			Ok(AnnotatedToken::new(Location::new(2, 1), Token::Dot)),
+			Ok(AnnotatedToken::new(
+				Location::new(2, 2),
+				Token::Number { text: "5".into(), value: 5. },
+			)),
+			Ok(AnnotatedToken::new(
+				Location::new(3, 1),
+				Token::Number { text: "5".into(), value: 5. },
+			)),
+			Ok(AnnotatedToken::new(Location::new(3, 2), Token::Dot)),
+			Ok(AnnotatedToken::new(Location::new(3, 3), Token::EndOfFile)),
 		];
 
 		let actual = Tokenizer::new(input).collect::<Vec<_>>();
@@ -657,10 +694,13 @@ mod tests {
 	#[test]
 	pub fn identifiers() {
 		let input = "orchid";
-		let expected = vec![Ok(AnnotatedToken {
-			token: Token::Identifier { text: String::from("orchid") },
-			location: Location::new(1, 1),
-		})];
+		let expected = vec![
+			Ok(AnnotatedToken::new(
+				Location::new(1, 1),
+				Token::Identifier { text: String::from("orchid") },
+			)),
+			Ok(AnnotatedToken::new(Location::new(1, 7), Token::EndOfFile)),
+		];
 
 		let actual = Tokenizer::new(input).collect::<Vec<_>>();
 
@@ -671,22 +711,23 @@ mod tests {
 	pub fn keywords() {
 		let input = "and class else false for fun if nil or print return super this true var while";
 		let expected = vec![
-			Ok(AnnotatedToken { token: Token::And, location: Location::new(1, 1) }),
-			Ok(AnnotatedToken { token: Token::Class, location: Location::new(1, 5) }),
-			Ok(AnnotatedToken { token: Token::Else, location: Location::new(1, 11) }),
-			Ok(AnnotatedToken { token: Token::False, location: Location::new(1, 16) }),
-			Ok(AnnotatedToken { token: Token::For, location: Location::new(1, 22) }),
-			Ok(AnnotatedToken { token: Token::Fun, location: Location::new(1, 26) }),
-			Ok(AnnotatedToken { token: Token::If, location: Location::new(1, 30) }),
-			Ok(AnnotatedToken { token: Token::Nil, location: Location::new(1, 33) }),
-			Ok(AnnotatedToken { token: Token::Or, location: Location::new(1, 37) }),
-			Ok(AnnotatedToken { token: Token::Print, location: Location::new(1, 40) }),
-			Ok(AnnotatedToken { token: Token::Return, location: Location::new(1, 46) }),
-			Ok(AnnotatedToken { token: Token::Super, location: Location::new(1, 53) }),
-			Ok(AnnotatedToken { token: Token::This, location: Location::new(1, 59) }),
-			Ok(AnnotatedToken { token: Token::True, location: Location::new(1, 64) }),
-			Ok(AnnotatedToken { token: Token::Var, location: Location::new(1, 69) }),
-			Ok(AnnotatedToken { token: Token::While, location: Location::new(1, 73) }),
+			Ok(AnnotatedToken::new(Location::new(1, 1), Token::And)),
+			Ok(AnnotatedToken::new(Location::new(1, 5), Token::Class)),
+			Ok(AnnotatedToken::new(Location::new(1, 11), Token::Else)),
+			Ok(AnnotatedToken::new(Location::new(1, 16), Token::False)),
+			Ok(AnnotatedToken::new(Location::new(1, 22), Token::For)),
+			Ok(AnnotatedToken::new(Location::new(1, 26), Token::Fun)),
+			Ok(AnnotatedToken::new(Location::new(1, 30), Token::If)),
+			Ok(AnnotatedToken::new(Location::new(1, 33), Token::Nil)),
+			Ok(AnnotatedToken::new(Location::new(1, 37), Token::Or)),
+			Ok(AnnotatedToken::new(Location::new(1, 40), Token::Print)),
+			Ok(AnnotatedToken::new(Location::new(1, 46), Token::Return)),
+			Ok(AnnotatedToken::new(Location::new(1, 53), Token::Super)),
+			Ok(AnnotatedToken::new(Location::new(1, 59), Token::This)),
+			Ok(AnnotatedToken::new(Location::new(1, 64), Token::True)),
+			Ok(AnnotatedToken::new(Location::new(1, 69), Token::Var)),
+			Ok(AnnotatedToken::new(Location::new(1, 73), Token::While)),
+			Ok(AnnotatedToken::new(Location::new(1, 78), Token::EndOfFile)),
 		];
 
 		let actual = Tokenizer::new(input).collect::<Vec<_>>();
