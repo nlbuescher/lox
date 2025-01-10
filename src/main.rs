@@ -1,42 +1,43 @@
+use std::io::BufRead;
+use crate::error::Error;
 use crate::tokenize::*;
 
 mod tokenize;
+mod error;
 
-pub fn main() {
+pub fn main() -> Result<(), Error> {
 	let args = std::env::args().collect::<Vec<String>>();
 
-	if args.len() < 3 {
-		eprintln!("Usage: {} tokenize <filename>", args[0]);
-		return;
+	match args.len() {
+		1 => run_prompt(),
+		2 => run_file(&args[1]),
+		_ => Err(Error::Usage(args[0].clone())),
+	}
+}
+
+fn run_prompt() -> Result<(), Error> {
+	for line in std::io::stdin().lock().lines() {
+		run(line?)?
 	}
 
-	let filename = &args[2];
+	Ok(())
+}
 
-	let source = std::fs::read_to_string(filename).unwrap_or_else(|error| {
+fn run_file(filename: &str) -> Result<(), Error> {
+	let source = std::fs::read_to_string(filename).inspect_err(|error| {
 		eprintln!("Unable to read file {filename}: {error}");
-		String::new()
-	});
+	})?;
 
-	let command = &args[1];
+	run(source)
+}
 
-	match command.as_str() {
-		"tokenize" => {
-			for token in tokenize(&source) {
-				match token {
-					AnnotatedToken {
-						token: Token::UnknownChar { .. } | Token::UnterminatedString { .. },
-						..
-					} => {
-						eprintln!("{token}")
-					}
-
-					_ => println!("{token}"),
-				}
-			}
-		}
-
-		_ => {
-			eprintln!("Unknown command: {}", command);
+fn run(source: String) -> Result<(), Error> {
+	for token in Tokenizer::new(&source) {
+		match token {
+			Ok(token) => println!("{token}"),
+			Err(error) => eprintln!("{error}"),
 		}
 	}
+	
+	Ok(())
 }

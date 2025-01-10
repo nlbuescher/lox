@@ -1,5 +1,4 @@
 use std::fmt::Display;
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
 	// Single-character tokens
@@ -27,8 +26,8 @@ pub enum Token {
 
 	// Literals
 	Identifier { text: String },
-	String { text: String, value: String },
-	Number { text: String, value: f64 },
+	String { value: String, text: String },
+	Number { value: f64, text: String },
 
 	// Keywords
 	And,
@@ -50,10 +49,6 @@ pub enum Token {
 
 	// Other
 	Comment { text: String },
-
-	// Error
-	UnknownChar { text: String },
-	UnterminatedString { text: String },
 }
 
 impl Token {
@@ -102,9 +97,6 @@ impl Token {
 			Token::While { .. } => "WHILE",
 
 			Token::Comment { .. } => "COMMENT",
-
-			Token::UnknownChar { .. } => "UNKNOWN_CHAR",
-			Token::UnterminatedString { .. } => "UNTERMINATED_STRING",
 		}
 	}
 
@@ -153,9 +145,6 @@ impl Token {
 			Token::While { .. } => "while",
 
 			Token::Comment { text, .. } => text,
-
-			Token::UnknownChar { text, .. } => text,
-			Token::UnterminatedString { text, .. } => text,
 		}
 	}
 }
@@ -176,12 +165,19 @@ pub struct Location {
 	pub column: usize,
 }
 
+impl Location {
+	pub fn new(line: usize, column: usize) -> Location {
+		Location { line, column }
+	}
+}
+
 impl Display for Location {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "[{}:{}]", self.line, self.column)
 	}
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct AnnotatedToken {
 	pub token: Token,
 	pub location: Location,
@@ -193,7 +189,35 @@ impl Display for AnnotatedToken {
 	}
 }
 
-struct Tokenizer {
+#[derive(Debug, Clone, PartialEq)]
+pub enum Error {
+	UnexpectedCharacter,
+	UnterminatedString,
+}
+
+impl Display for Error {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Error::UnexpectedCharacter => write!(f, "Unexpected character"),
+			Error::UnterminatedString => write!(f, "Unterminated string"),
+		}
+	}
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnnotatedError {
+	error: Error,
+	text: String,
+	location: Location,
+}
+
+impl Display for AnnotatedError {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}: {}: {}", self.location, self.error, self.text)
+	}
+}
+
+pub struct Tokenizer {
 	source: Vec<char>,
 	position: usize,
 	buffer: String,
@@ -296,22 +320,34 @@ impl Tokenizer {
 		result
 	}
 
-	fn get_string_token(&mut self) -> AnnotatedToken {
+	fn annotate_error(&mut self, error: Error) -> AnnotatedError {
+		let result = AnnotatedError {
+			error,
+			text: self.buffer.clone(),
+			location: self.start_location.clone(),
+		};
+
+		self.reset();
+
+		result
+	}
+
+	fn get_string_token(&mut self) -> Result<AnnotatedToken, AnnotatedError> {
 		while self.peek() != Some('"') && self.peek() != None {
 			self.advance(true);
 		}
 
 		if self.peek() == None {
-			self.annotate_token(Token::UnterminatedString { text: self.buffer.clone() })
+			Err(self.annotate_error(Error::UnterminatedString))
 		}
 		else {
 			// consume the closing quote
 			self.advance(true);
 
-			self.annotate_token(Token::String {
-				text: self.buffer.clone(),
+			Ok(self.annotate_token(Token::String {
 				value: self.buffer[1..self.buffer.len() - 1].to_string(),
-			})
+				text: self.buffer.clone(),
+			}))
 		}
 	}
 
@@ -330,8 +366,8 @@ impl Tokenizer {
 		}
 
 		self.annotate_token(Token::Number {
-			text: self.buffer.clone(),
 			value: self.buffer.parse::<f64>().unwrap(),
+			text: self.buffer.clone(),
 		})
 	}
 
@@ -363,39 +399,39 @@ impl Tokenizer {
 }
 
 impl Iterator for Tokenizer {
-	type Item = AnnotatedToken;
+	type Item = Result<AnnotatedToken, AnnotatedError>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.advance(false).and_then(|c| match c {
-			'(' => Some(self.annotate_token(Token::LeftParen)),
-			')' => Some(self.annotate_token(Token::RightParen)),
-			'{' => Some(self.annotate_token(Token::LeftBrace)),
-			'}' => Some(self.annotate_token(Token::RightBrace)),
-			',' => Some(self.annotate_token(Token::Comma)),
-			'.' => Some(self.annotate_token(Token::Dot)),
-			'-' => Some(self.annotate_token(Token::Minus)),
-			'+' => Some(self.annotate_token(Token::Plus)),
-			';' => Some(self.annotate_token(Token::Semicolon)),
-			'*' => Some(self.annotate_token(Token::Star)),
+			'(' => Some(Ok(self.annotate_token(Token::LeftParen))),
+			')' => Some(Ok(self.annotate_token(Token::RightParen))),
+			'{' => Some(Ok(self.annotate_token(Token::LeftBrace))),
+			'}' => Some(Ok(self.annotate_token(Token::RightBrace))),
+			',' => Some(Ok(self.annotate_token(Token::Comma))),
+			'.' => Some(Ok(self.annotate_token(Token::Dot))),
+			'-' => Some(Ok(self.annotate_token(Token::Minus))),
+			'+' => Some(Ok(self.annotate_token(Token::Plus))),
+			';' => Some(Ok(self.annotate_token(Token::Semicolon))),
+			'*' => Some(Ok(self.annotate_token(Token::Star))),
 
 			'!' => {
 				let token = if self.advance_if('=') { Token::BangEqual } else { Token::Bang };
-				Some(self.annotate_token(token))
+				Some(Ok(self.annotate_token(token)))
 			}
 
 			'=' => {
 				let token = if self.advance_if('=') { Token::EqualEqual } else { Token::Equal };
-				Some(self.annotate_token(token))
+				Some(Ok(self.annotate_token(token)))
 			}
 
 			'>' => {
 				let token = if self.advance_if('=') { Token::GreaterEqual } else { Token::Greater };
-				Some(self.annotate_token(token))
+				Some(Ok(self.annotate_token(token)))
 			}
 
 			'<' => {
 				let token = if self.advance_if('=') { Token::LessEqual } else { Token::Less };
-				Some(self.annotate_token(token))
+				Some(Ok(self.annotate_token(token)))
 			}
 
 			'/' => {
@@ -403,10 +439,10 @@ impl Iterator for Tokenizer {
 					while self.peek() != Some('\n') && self.peek() != None {
 						self.advance(true);
 					}
-					Some(self.annotate_token(Token::Comment { text: self.buffer.clone() }))
+					Some(Ok(self.annotate_token(Token::Comment { text: self.buffer.clone() })))
 				}
 				else {
-					Some(self.annotate_token(Token::Slash))
+					Some(Ok(self.annotate_token(Token::Slash)))
 				}
 			}
 
@@ -414,17 +450,13 @@ impl Iterator for Tokenizer {
 
 			_ if c.is_ascii_whitespace() => self.next(),
 
-			_ if c.is_ascii_digit() => Some(self.get_number_token()),
+			_ if c.is_ascii_digit() => Some(Ok(self.get_number_token())),
 
-			_ if c == '_' || c.is_ascii_alphabetic() => Some(self.get_identifier_token()),
+			_ if c.is_ascii_alphabetic() || c == '_' => Some(Ok(self.get_identifier_token())),
 
-			_ => Some(self.annotate_token(Token::UnknownChar { text: self.buffer.clone() })),
+			_ => Some(Err(self.annotate_error(Error::UnexpectedCharacter))),
 		})
 	}
-}
-
-pub fn tokenize(source: &str) -> Vec<AnnotatedToken> {
-	Tokenizer::new(source).collect::<Vec<AnnotatedToken>>()
 }
 
 mod tests {
@@ -433,9 +465,9 @@ mod tests {
 	#[test]
 	pub fn empty_source() {
 		let input = "";
-		let expected = Vec::<Token>::new();
+		let expected: Vec<Result<AnnotatedToken, AnnotatedError>> = Vec::new();
 
-		let actual = tokenize(input).into_iter().map(|it| it.token).collect::<Vec<_>>();
+		let actual = Tokenizer::new(input).collect::<Vec<_>>();
 
 		assert_eq!(expected, actual);
 	}
@@ -443,9 +475,13 @@ mod tests {
 	#[test]
 	pub fn parentheses() {
 		let input = "(()";
-		let expected = vec![Token::LeftParen, Token::LeftParen, Token::RightParen];
+		let expected = vec![
+			Ok(AnnotatedToken { token: Token::LeftParen, location: Location::new(1, 1) }),
+			Ok(AnnotatedToken { token: Token::LeftParen, location: Location::new(1, 2) }),
+			Ok(AnnotatedToken { token: Token::RightParen, location: Location::new(1, 3) }),
+		];
 
-		let actual = tokenize(input).into_iter().map(|it| it.token).collect::<Vec<_>>();
+		let actual = Tokenizer::new(input).collect::<Vec<_>>();
 
 		assert_eq!(expected, actual);
 	}
@@ -453,9 +489,10 @@ mod tests {
 	#[test]
 	pub fn whitespace() {
 		let input = " \t(";
-		let expected = vec![Token::LeftParen];
+		let expected =
+			vec![Ok(AnnotatedToken { token: Token::LeftParen, location: Location::new(1, 5) })];
 
-		let actual = tokenize(input).into_iter().map(|it| it.token).collect::<Vec<_>>();
+		let actual = Tokenizer::new(input).collect::<Vec<_>>();
 
 		assert_eq!(expected, actual);
 	}
@@ -463,9 +500,10 @@ mod tests {
 	#[test]
 	pub fn newlines() {
 		let input = "\r\n\r\n  (";
-		let expected = vec![Token::LeftParen];
+		let expected =
+			vec![Ok(AnnotatedToken { token: Token::LeftParen, location: Location::new(3, 3) })];
 
-		let actual = tokenize(input).into_iter().map(|it| it.token).collect::<Vec<_>>();
+		let actual = Tokenizer::new(input).collect::<Vec<_>>();
 
 		assert_eq!(expected, actual);
 	}
@@ -473,10 +511,14 @@ mod tests {
 	#[test]
 	pub fn braces() {
 		let input = "{{}}";
-		let expected =
-			vec![Token::LeftBrace, Token::LeftBrace, Token::RightBrace, Token::RightBrace];
+		let expected = vec![
+			Ok(AnnotatedToken { token: Token::LeftBrace, location: Location::new(1, 1) }),
+			Ok(AnnotatedToken { token: Token::LeftBrace, location: Location::new(1, 2) }),
+			Ok(AnnotatedToken { token: Token::RightBrace, location: Location::new(1, 3) }),
+			Ok(AnnotatedToken { token: Token::RightBrace, location: Location::new(1, 4) }),
+		];
 
-		let actual = tokenize(input).into_iter().map(|it| it.token).collect::<Vec<_>>();
+		let actual = Tokenizer::new(input).collect::<Vec<_>>();
 
 		assert_eq!(expected, actual);
 	}
@@ -485,19 +527,19 @@ mod tests {
 	pub fn other_single_character_tokens() {
 		let input = "({+.*,- ;})";
 		let expected = vec![
-			Token::LeftParen,
-			Token::LeftBrace,
-			Token::Plus,
-			Token::Dot,
-			Token::Star,
-			Token::Comma,
-			Token::Minus,
-			Token::Semicolon,
-			Token::RightBrace,
-			Token::RightParen,
+			Ok(AnnotatedToken { token: Token::LeftParen, location: Location::new(1, 1) }),
+			Ok(AnnotatedToken { token: Token::LeftBrace, location: Location::new(1, 2) }),
+			Ok(AnnotatedToken { token: Token::Plus, location: Location::new(1, 3) }),
+			Ok(AnnotatedToken { token: Token::Dot, location: Location::new(1, 4) }),
+			Ok(AnnotatedToken { token: Token::Star, location: Location::new(1, 5) }),
+			Ok(AnnotatedToken { token: Token::Comma, location: Location::new(1, 6) }),
+			Ok(AnnotatedToken { token: Token::Minus, location: Location::new(1, 7) }),
+			Ok(AnnotatedToken { token: Token::Semicolon, location: Location::new(1, 9) }),
+			Ok(AnnotatedToken { token: Token::RightBrace, location: Location::new(1, 10) }),
+			Ok(AnnotatedToken { token: Token::RightParen, location: Location::new(1, 11) }),
 		];
 
-		let actual = tokenize(input).into_iter().map(|it| it.token).collect::<Vec<_>>();
+		let actual = Tokenizer::new(input).collect::<Vec<_>>();
 
 		assert_eq!(expected, actual);
 	}
@@ -506,14 +548,22 @@ mod tests {
 	pub fn unknown_character() {
 		let input = ".,$(#";
 		let expected = vec![
-			Token::Dot,
-			Token::Comma,
-			Token::UnknownChar { text: String::from("$") },
-			Token::LeftParen,
-			Token::UnknownChar { text: String::from("#") },
+			Ok(AnnotatedToken { token: Token::Dot, location: Location::new(1, 1) }),
+			Ok(AnnotatedToken { token: Token::Comma, location: Location::new(1, 2) }),
+			Err(AnnotatedError {
+				error: Error::UnexpectedCharacter,
+				text: String::from("$"),
+				location: Location::new(1, 3),
+			}),
+			Ok(AnnotatedToken { token: Token::LeftParen, location: Location::new(1, 4) }),
+			Err(AnnotatedError {
+				error: Error::UnexpectedCharacter,
+				text: String::from("#"),
+				location: Location::new(1, 5),
+			}),
 		];
 
-		let actual = tokenize(input).into_iter().map(|it| it.token).collect::<Vec<_>>();
+		let actual = Tokenizer::new(input).collect::<Vec<_>>();
 
 		assert_eq!(expected, actual);
 	}
@@ -522,17 +572,17 @@ mod tests {
 	pub fn operators() {
 		let input = "! != = == > >= < <=";
 		let expected = vec![
-			Token::Bang,
-			Token::BangEqual,
-			Token::Equal,
-			Token::EqualEqual,
-			Token::Greater,
-			Token::GreaterEqual,
-			Token::Less,
-			Token::LessEqual,
+			Ok(AnnotatedToken { token: Token::Bang, location: Location::new(1, 1) }),
+			Ok(AnnotatedToken { token: Token::BangEqual, location: Location::new(1, 3) }),
+			Ok(AnnotatedToken { token: Token::Equal, location: Location::new(1, 6) }),
+			Ok(AnnotatedToken { token: Token::EqualEqual, location: Location::new(1, 8) }),
+			Ok(AnnotatedToken { token: Token::Greater, location: Location::new(1, 11) }),
+			Ok(AnnotatedToken { token: Token::GreaterEqual, location: Location::new(1, 13) }),
+			Ok(AnnotatedToken { token: Token::Less, location: Location::new(1, 16) }),
+			Ok(AnnotatedToken { token: Token::LessEqual, location: Location::new(1, 18) }),
 		];
 
-		let actual = tokenize(input).into_iter().map(|it| it.token).collect::<Vec<_>>();
+		let actual = Tokenizer::new(input).collect::<Vec<_>>();
 
 		assert_eq!(expected, actual);
 	}
@@ -540,9 +590,15 @@ mod tests {
 	#[test]
 	pub fn comments() {
 		let input = "// comment\n/";
-		let expected = vec![Token::Comment { text: String::from("// comment") }, Token::Slash];
+		let expected = vec![
+			Ok(AnnotatedToken {
+				token: Token::Comment { text: String::from("// comment") },
+				location: Location::new(1, 1),
+			}),
+			Ok(AnnotatedToken { token: Token::Slash, location: Location::new(2, 1) }),
+		];
 
-		let actual = tokenize(input).into_iter().map(|it| it.token).collect::<Vec<_>>();
+		let actual = Tokenizer::new(input).collect::<Vec<_>>();
 
 		assert_eq!(expected, actual);
 	}
@@ -551,11 +607,21 @@ mod tests {
 	pub fn strings() {
 		let input = "\"test\"\"test";
 		let expected = vec![
-			Token::String { text: String::from("\"test\""), value: String::from("test") },
-			Token::UnterminatedString { text: String::from("\"test") },
+			Ok(AnnotatedToken {
+				token: Token::String {
+					text: String::from("\"test\""),
+					value: String::from("test"),
+				},
+				location: Location::new(1, 1),
+			}),
+			Err(AnnotatedError {
+				error: Error::UnterminatedString,
+				text: String::from("\"test"),
+				location: Location::new(1, 7),
+			}),
 		];
 
-		let actual = tokenize(input).into_iter().map(|it| it.token).collect::<Vec<_>>();
+		let actual = Tokenizer::new(input).collect::<Vec<_>>();
 
 		assert_eq!(expected, actual);
 	}
@@ -564,14 +630,23 @@ mod tests {
 	pub fn numbers() {
 		let input = "420.69\n.5\n5.";
 		let expected = vec![
-			Token::Number { text: String::from("420.69"), value: 420.69 },
-			Token::Dot,
-			Token::Number { text: String::from("5"), value: 5. },
-			Token::Number { text: String::from("5"), value: 5. },
-			Token::Dot,
+			Ok(AnnotatedToken {
+				token: Token::Number { text: String::from("420.69"), value: 420.69 },
+				location: Location::new(1, 1),
+			}),
+			Ok(AnnotatedToken { token: Token::Dot, location: Location::new(2, 1) }),
+			Ok(AnnotatedToken {
+				token: Token::Number { text: String::from("5"), value: 5. },
+				location: Location::new(2, 2),
+			}),
+			Ok(AnnotatedToken {
+				token: Token::Number { text: String::from("5"), value: 5. },
+				location: Location::new(3, 1),
+			}),
+			Ok(AnnotatedToken { token: Token::Dot, location: Location::new(3, 2) }),
 		];
 
-		let actual = tokenize(input).into_iter().map(|it| it.token).collect::<Vec<_>>();
+		let actual = Tokenizer::new(input).collect::<Vec<_>>();
 
 		assert_eq!(expected, actual);
 	}
@@ -579,9 +654,12 @@ mod tests {
 	#[test]
 	pub fn identifiers() {
 		let input = "orchid";
-		let expected = vec![Token::Identifier { text: String::from("orchid") }];
+		let expected = vec![Ok(AnnotatedToken {
+			token: Token::Identifier { text: String::from("orchid") },
+			location: Location::new(1, 1),
+		})];
 
-		let actual = tokenize(input).into_iter().map(|it| it.token).collect::<Vec<_>>();
+		let actual = Tokenizer::new(input).collect::<Vec<_>>();
 
 		assert_eq!(expected, actual);
 	}
@@ -590,25 +668,25 @@ mod tests {
 	pub fn keywords() {
 		let input = "and class else false for fun if nil or print return super this true var while";
 		let expected = vec![
-			Token::And,
-			Token::Class,
-			Token::Else,
-			Token::False,
-			Token::For,
-			Token::Fun,
-			Token::If,
-			Token::Nil,
-			Token::Or,
-			Token::Print,
-			Token::Return,
-			Token::Super,
-			Token::This,
-			Token::True,
-			Token::Var,
-			Token::While,
+			Ok(AnnotatedToken { token: Token::And, location: Location::new(1, 1) }),
+			Ok(AnnotatedToken { token: Token::Class, location: Location::new(1, 5) }),
+			Ok(AnnotatedToken { token: Token::Else, location: Location::new(1, 11) }),
+			Ok(AnnotatedToken { token: Token::False, location: Location::new(1, 16) }),
+			Ok(AnnotatedToken { token: Token::For, location: Location::new(1, 22) }),
+			Ok(AnnotatedToken { token: Token::Fun, location: Location::new(1, 26) }),
+			Ok(AnnotatedToken { token: Token::If, location: Location::new(1, 30) }),
+			Ok(AnnotatedToken { token: Token::Nil, location: Location::new(1, 33) }),
+			Ok(AnnotatedToken { token: Token::Or, location: Location::new(1, 37) }),
+			Ok(AnnotatedToken { token: Token::Print, location: Location::new(1, 40) }),
+			Ok(AnnotatedToken { token: Token::Return, location: Location::new(1, 46) }),
+			Ok(AnnotatedToken { token: Token::Super, location: Location::new(1, 53) }),
+			Ok(AnnotatedToken { token: Token::This, location: Location::new(1, 59) }),
+			Ok(AnnotatedToken { token: Token::True, location: Location::new(1, 64) }),
+			Ok(AnnotatedToken { token: Token::Var, location: Location::new(1, 69) }),
+			Ok(AnnotatedToken { token: Token::While, location: Location::new(1, 73) }),
 		];
 
-		let actual = tokenize(input).into_iter().map(|it| it.token).collect::<Vec<_>>();
+		let actual = Tokenizer::new(input).collect::<Vec<_>>();
 
 		assert_eq!(expected, actual);
 	}
