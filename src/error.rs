@@ -1,5 +1,5 @@
-use std::fmt::Display;
 use crate::tokenize;
+use std::fmt::Display;
 
 #[derive(Debug)]
 pub enum Error {

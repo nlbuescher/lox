@@ -1,9 +1,9 @@
-use std::io::BufRead;
 use crate::error::Error;
 use crate::tokenize::*;
+use std::io::BufRead;
 
-mod tokenize;
 mod error;
+mod tokenize;
 
 pub fn main() -> Result<(), Error> {
 	let args = std::env::args().collect::<Vec<String>>();
@@ -17,7 +17,7 @@ pub fn main() -> Result<(), Error> {
 
 fn run_prompt() -> Result<(), Error> {
 	for line in std::io::stdin().lock().lines() {
-		run(line?)?
+		run(&line?)?
 	}
 
 	Ok(())
@@ -28,16 +28,27 @@ fn run_file(filename: &str) -> Result<(), Error> {
 		eprintln!("Unable to read file {filename}: {error}");
 	})?;
 
-	run(source)
+	run(&source)
 }
 
-fn run(source: String) -> Result<(), Error> {
-	for token in Tokenizer::new(&source) {
+fn run(source: &str) -> Result<(), Error> {
+	for token in Tokenizer::new(source) {
 		match token {
 			Ok(token) => println!("{token}"),
 			Err(error) => eprintln!("{error}"),
 		}
 	}
-	
+
 	Ok(())
+}
+
+mod tests {
+	use super::*;
+
+	#[test]
+	pub fn test() -> Result<(), Error> {
+		let input = "#\r\n   \t(()";
+		println!("input: \n```\n{input}\n```");
+		run(input)
+	}
 }

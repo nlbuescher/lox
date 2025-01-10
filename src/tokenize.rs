@@ -154,7 +154,7 @@ impl Display for Token {
 		match self {
 			Token::String { value, .. } => write!(f, "{} {} {}", self.name(), self.text(), value),
 			Token::Number { value, .. } => write!(f, "{} {} {}", self.name(), self.text(), value),
-			_ => write!(f, "{} {} null", self.name(), self.text()),
+			_ => write!(f, "{} {}", self.name(), self.text()),
 		}
 	}
 }
@@ -213,7 +213,7 @@ pub struct AnnotatedError {
 
 impl Display for AnnotatedError {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}: {}: {}", self.location, self.error, self.text)
+		write!(f, "{} {}: {}", self.location, self.error, self.text)
 	}
 }
 
@@ -231,8 +231,8 @@ impl Tokenizer {
 			source: source.chars().collect(),
 			position: 0,
 			buffer: String::new(),
-			start_location: Location { line: 1, column: 1 },
-			current_location: Location { line: 1, column: 1 },
+			start_location: Location::new(1, 1),
+			current_location: Location::new(1, 1),
 		}
 	}
 
@@ -277,7 +277,7 @@ impl Tokenizer {
 				}
 				'\t' => {
 					self.current_location.column =
-						((self.current_location.column + 4) & !0b11usize) + 1;
+						((self.current_location.column + 3) & !0b11usize) + 1;
 				}
 				_ => self.current_location.column += 1,
 			}
@@ -488,9 +488,12 @@ mod tests {
 
 	#[test]
 	pub fn whitespace() {
-		let input = " \t(";
+		let input = "\t(  \t(";
 		let expected =
-			vec![Ok(AnnotatedToken { token: Token::LeftParen, location: Location::new(1, 5) })];
+			vec![
+				Ok(AnnotatedToken { token: Token::LeftParen, location: Location::new(1, 5) }),
+				Ok(AnnotatedToken { token: Token::LeftParen, location: Location::new(1, 9) }),
+			];
 
 		let actual = Tokenizer::new(input).collect::<Vec<_>>();
 
