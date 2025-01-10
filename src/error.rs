@@ -1,3 +1,4 @@
+use crate::parse;
 use crate::tokenize;
 use std::fmt::Display;
 
@@ -6,6 +7,7 @@ pub enum Error {
 	Usage(String),
 	Io(std::io::Error),
 	Tokenize(tokenize::AnnotatedError),
+	Parse(parse::Error),
 }
 
 impl From<std::io::Error> for Error {
@@ -26,6 +28,7 @@ impl Display for Error {
 			Error::Usage(program) => write!(f, "Usage: {program} <filename>"),
 			Error::Io(inner) => write!(f, "IO error: {inner}"),
 			Error::Tokenize(inner) => write!(f, "{inner}"),
+			Error::Parse(inner) => write!(f, "{inner}"),
 		}
 	}
 }

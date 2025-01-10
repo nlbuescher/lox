@@ -3,6 +3,7 @@ use crate::tokenize::*;
 use std::io::BufRead;
 
 mod error;
+mod parse;
 mod tokenize;
 
 pub fn main() -> Result<(), Error> {
