@@ -9,10 +9,27 @@ mod parse;
 mod tokenize;
 
 fn run(source: &str) -> Result<(), Error> {
-	let mut parser = Parser::new(Tokens::new(source));
+	println!("Source:");
+	println!("{source}");
+	println!();
+
+	let tokens = Tokens::new(source);
+
+	println!("Tokenize:");
+	for token in tokens.clone() {
+		match token {
+			Ok(token) => println!("{token}"),
+			Err(error) => println!("{error}"),
+		}
+	}
+	println!();
+
+	let mut parser = Parser::new(tokens);
 	let expression = parser.parse()?;
 
-	println!("{expression}");
+	println!("Parse: {expression}");
+	print!("Evaluate: ");
+	println!("{:?}", expression.evaluate()?);
 
 	Ok(())
 }
@@ -54,8 +71,7 @@ mod tests {
 
 	#[test]
 	pub fn test() {
-		let input = "1 + 2 * 3 + 4";
-		println!("input: \n```\n{input}\n```");
+		let input = "(\"1\" + \"2\") != \"3\"";
 
 		if let Err(error) = run(input) {
 			println!("{error}");

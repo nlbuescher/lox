@@ -171,15 +171,6 @@ pub enum Value {
 	String(String),
 }
 
-impl Display for Value {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Value::Number(n) => write!(f, "{n}"),
-			Value::String(s) => write!(f, "{s}"),
-		}
-	}
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
 	pub location: Location,
@@ -216,6 +207,7 @@ impl Display for Token {
 	}
 }
 
+#[derive(Debug, Clone)]
 pub struct Tokens<'a> {
 	source: Chars<'a>,
 	has_next: bool,

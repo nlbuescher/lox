@@ -3,38 +3,210 @@ use std::iter::Peekable;
 use std::string::String;
 
 use crate::tokenize::TokenType::*;
-use crate::tokenize::{Error as TokenError, Token, TokenType, Tokens};
+use crate::tokenize::{
+	Error as TokenError, Location, Token, TokenType, Tokens, Value as TokenValue,
+};
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Value {
+	Nil,
+	Bool(bool),
+	Number(f64),
+	String(String),
+}
+
+impl Value {
+	fn is_truthy(&self) -> bool {
+		match self {
+			Value::Nil => false,
+			Value::Bool(b) => *b,
+			Value::Number(n) => *n != 0.0,
+			Value::String(s) => !s.is_empty(),
+		}
+	}
+
+	fn as_number(&self, expression: &Expression) -> Result<&f64, Error> {
+		match self {
+			Value::Number(n) => Ok(n),
+			_ => Err(Error::UnexpectedType {
+				message: "Expected number".into(),
+				location: expression.location(),
+				value: self.clone(),
+			}),
+		}
+	}
+
+	fn as_string(&self, expression: &Expression) -> Result<String, Error> {
+		match self {
+			Value::String(s) => Ok(s.clone()),
+			_ => Err(Error::UnexpectedType {
+				message: "Expected string".into(),
+				location: expression.location(),
+				value: self.clone(),
+			}),
+		}
+	}
+}
+
+impl From<TokenValue> for Value {
+	fn from(value: TokenValue) -> Self {
+		match value {
+			TokenValue::Number(number) => Value::Number(number),
+			TokenValue::String(string) => Value::String(string),
+		}
+	}
+}
 
 #[derive(Debug)]
 pub enum Error {
-	UnexpectedToken { token: Result<Token, TokenError>, message: String },
+	UnexpectedToken { message: String, token: Result<Token, TokenError> },
+	UnexpectedType { message: String, location: Location, value: Value },
 }
 
 impl Display for Error {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Error::UnexpectedToken {
-				token: Ok(Token { location, token_type, text, .. }),
 				message,
+				token: Ok(Token { location, token_type, text, .. }),
 			} => {
 				write!(f, "{location} {message}; got {token_type} {text}")
 			}
 
 			Error::UnexpectedToken {
-				token: Err(TokenError { location, error_type, text }),
 				message,
+				token: Err(TokenError { location, error_type, text }),
 			} => {
 				write!(f, "{location} {message}; got {error_type} {text}")
+			}
+
+			Error::UnexpectedType { location, message, value } => {
+				write!(f, "{location} {message}; got {value:?}")
 			}
 		}
 	}
 }
 
+#[derive(Debug, Clone)]
 pub enum Expression {
 	Binary { left: Box<Expression>, operator: Token, right: Box<Expression> },
-	Literal(Token),
+	Literal(Value, Token),
 	Grouping(Box<Expression>),
 	Unary { operator: Token, right: Box<Expression> },
+}
+
+impl Expression {
+	pub fn location(&self) -> Location {
+		match self {
+			Expression::Binary { left, .. } => left.location(),
+			Expression::Grouping(expression) => expression.location(),
+			Expression::Literal(_, token) => token.location.clone(),
+			Expression::Unary { operator, .. } => operator.location.clone(),
+		}
+	}
+
+	pub fn evaluate(&self) -> Result<Value, Error> {
+		match self {
+			Expression::Binary { left, operator, right } => {
+				let left_value = left.evaluate()?;
+				let right_value = right.evaluate()?;
+
+				match operator.token_type {
+					Greater => {
+						let left_number = left_value.as_number(left)?;
+						let right_number = right_value.as_number(right)?;
+
+						Ok(Value::Bool(left_number > right_number))
+					}
+
+					GreaterEqual => {
+						let left_number = left_value.as_number(left)?;
+						let right_number = right_value.as_number(right)?;
+
+						Ok(Value::Bool(left_number >= right_number))
+					}
+
+					Less => {
+						let left_number = left_value.as_number(left)?;
+						let right_number = right_value.as_number(right)?;
+
+						Ok(Value::Bool(left_number < right_number))
+					}
+
+					LessEqual => {
+						let left_number = left_value.as_number(left)?;
+						let right_number = right_value.as_number(right)?;
+
+						Ok(Value::Bool(left_number <= right_number))
+					}
+
+					BangEqual => Ok(Value::Bool(left_value != right_value)),
+
+					EqualEqual => Ok(Value::Bool(left_value == right_value)),
+
+					Minus => {
+						let left_number = left_value.as_number(left)?;
+						let right_number = right_value.as_number(right)?;
+
+						Ok(Value::Number(left_number - right_number))
+					}
+
+					Plus => match left_value.as_number(left) {
+						Ok(left_number) => {
+							let right_number = right_value.as_number(right)?;
+
+							Ok(Value::Number(left_number + right_number))
+						}
+						Err(_) => {
+							let left_string = left_value.as_string(left)?;
+							let right_string = right_value.as_string(right)?;
+
+							Ok(Value::String(format!("{left_string}{right_string}")))
+						}
+					},
+
+					Slash => {
+						let left_number = left_value.as_number(left)?;
+						let right_number = right_value.as_number(right)?;
+						
+						Ok(Value::Number(left_number / right_number))
+					}
+
+					Star => {
+						let left_number = left_value.as_number(left)?;
+						let right_number = right_value.as_number(right)?;
+						
+						Ok(Value::Number(left_number * right_number))
+					}
+
+					_ => unreachable!("Unknown operator evaluating binary expression!"),
+				}
+			}
+
+			Expression::Grouping(expression) => expression.evaluate(),
+
+			Expression::Literal(value, _) => Ok(value.clone()),
+
+			Expression::Unary { operator, right } => {
+				let right_value = right.evaluate()?;
+
+				match operator.token_type {
+					Bang => Ok(Value::Bool(!right_value.is_truthy())),
+
+					Minus => match right_value {
+						Value::Number(n) => Ok(Value::Number(-n)),
+						_ => Err(Error::UnexpectedType {
+							message: "Expected number".into(),
+							location: right.location(),
+							value: right_value,
+						}),
+					},
+
+					_ => unreachable!("Unknown operator evaluating unary expression!"),
+				}
+			}
+		}
+	}
 }
 
 impl Display for Expression {
@@ -44,9 +216,11 @@ impl Display for Expression {
 				write!(f, "({text} {left} {right})")
 			}
 
-			Expression::Literal(Token { value, text, .. }) => match value {
-				Some(value) => write!(f, "{value}"),
-				None => write!(f, "{text}"),
+			Expression::Literal(value, _) => match value {
+				Value::Nil => write!(f, "nil"),
+				Value::Bool(b) => write!(f, "{b}"),
+				Value::Number(n) => write!(f, "{n}"),
+				Value::String(s) => write!(f, "\"{s}\""),
 			},
 
 			Expression::Grouping(expression) => write!(f, "(group {expression})"),
@@ -120,8 +294,21 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_primary(&mut self) -> Result<Expression, Error> {
-		if self.advance_if_any(&[False, True, Nil, Number, TokenType::String]) {
-			return Ok(Expression::Literal(self.previous()));
+		if self.advance_if(False) {
+			return Ok(Expression::Literal(Value::Bool(false), self.previous()));
+		}
+
+		if self.advance_if(True) {
+			return Ok(Expression::Literal(Value::Bool(true), self.previous()));
+		}
+
+		if self.advance_if(Nil) {
+			return Ok(Expression::Literal(Value::Nil, self.previous()));
+		}
+
+		if self.advance_if_any(&[Number, String]) {
+			let token = self.previous();
+			return Ok(Expression::Literal(Value::from(token.value.clone().unwrap()), token));
 		}
 
 		if self.advance_if(LeftParen) {
@@ -277,7 +464,7 @@ mod tests {
 	#[test]
 	pub fn string() {
 		let input = "\"Hello, World!\"";
-		let expected = "Hello, World!".to_string();
+		let expected = "\"Hello, World!\"".to_string();
 
 		let actual = Parser::new(Tokens::new(input))
 			.parse()
@@ -302,6 +489,18 @@ mod tests {
 	pub fn compound_expression() {
 		let input = "(1 + 2) * 3 + 4";
 		let expected = "(+ (* (group (+ 1 2)) 3) 4)".to_string();
+
+		let actual = Parser::new(Tokens::new(input))
+			.parse()
+			.map_or_else(|error| format!("{error}"), |expression| format!("{expression}"));
+
+		assert_eq!(expected, actual);
+	}
+
+	#[test]
+	pub fn subtract_strings() {
+		let input = "\"1\" - \"2\"";
+		let expected = "(- \"1\" \"2\")".to_string();
 
 		let actual = Parser::new(Tokens::new(input))
 			.parse()
