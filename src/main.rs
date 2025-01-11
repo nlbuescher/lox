@@ -1,24 +1,30 @@
+use std::io::{stdin, stdout, BufRead, Write};
+
 use crate::error::Error;
+use crate::parse::Parser;
 use crate::tokenize::*;
-use std::io::BufRead;
 
 mod error;
 mod parse;
 mod tokenize;
 
-pub fn main() -> Result<(), Error> {
-	let args = std::env::args().collect::<Vec<String>>();
+fn run(source: &str) -> Result<(), Error> {
+	let mut parser = Parser::new(Tokens::new(source));
+	let expression = parser.parse()?;
 
-	match args.len() {
-		1 => run_prompt(),
-		2 => run_file(&args[1]),
-		_ => Err(Error::Usage(args[0].clone())),
-	}
+	println!("{expression}");
+
+	Ok(())
 }
 
 fn run_prompt() -> Result<(), Error> {
-	for line in std::io::stdin().lock().lines() {
-		run(&line?)?
+	print!("> ");
+	stdout().flush()?;
+
+	for line in stdin().lock().lines() {
+		run(&line?)?;
+		print!("> ");
+		stdout().flush()?;
 	}
 
 	Ok(())
@@ -32,24 +38,27 @@ fn run_file(filename: &str) -> Result<(), Error> {
 	run(&source)
 }
 
-fn run(source: &str) -> Result<(), Error> {
-	for token in Tokenizer::new(source) {
-		match token {
-			Ok(token) => println!("{token}"),
-			Err(error) => eprintln!("{error}"),
-		}
-	}
+pub fn main() -> Result<(), Error> {
+	let args = std::env::args().collect::<Vec<String>>();
 
-	Ok(())
+	match args.len() {
+		1 => run_prompt(),
+		2 => run_file(&args[1]),
+		_ => Err(Error::Usage(args[0].clone())),
+	}
 }
 
+#[cfg(test)]
 mod tests {
 	use super::*;
 
 	#[test]
-	pub fn test() -> Result<(), Error> {
-		let input = "#\r\n   \t(()";
+	pub fn test() {
+		let input = "1 + 2 * 3 + 4";
 		println!("input: \n```\n{input}\n```");
-		run(input)
+
+		if let Err(error) = run(input) {
+			println!("{error}");
+		}
 	}
 }

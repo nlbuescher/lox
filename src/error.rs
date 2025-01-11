@@ -1,13 +1,14 @@
-use crate::parse;
-use crate::tokenize;
-use std::fmt::Display;
+use std::fmt::{Display, Formatter};
+
+use crate::parse::Error as ParseError;
+use crate::tokenize::Error as TokenError;
 
 #[derive(Debug)]
 pub enum Error {
 	Usage(String),
 	Io(std::io::Error),
-	Tokenize(tokenize::AnnotatedError),
-	Parse(parse::Error),
+	Tokenize(TokenError),
+	Parse(ParseError),
 }
 
 impl From<std::io::Error> for Error {
@@ -16,14 +17,20 @@ impl From<std::io::Error> for Error {
 	}
 }
 
-impl From<tokenize::AnnotatedError> for Error {
-	fn from(value: tokenize::AnnotatedError) -> Self {
+impl From<TokenError> for Error {
+	fn from(value: TokenError) -> Self {
 		Error::Tokenize(value)
 	}
 }
 
+impl From<ParseError> for Error {
+	fn from(value: ParseError) -> Self {
+		Error::Parse(value)
+	}
+}
+
 impl Display for Error {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Error::Usage(program) => write!(f, "Usage: {program} <filename>"),
 			Error::Io(inner) => write!(f, "IO error: {inner}"),

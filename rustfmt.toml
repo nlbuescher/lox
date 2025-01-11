@@ -2,3 +2,6 @@ hard_tabs = true
 use_small_heuristics = "Max"
 combine_control_expr = false
 control_brace_style = "ClosingNextLine"
+imports_granularity = "Module"
+merge_imports = true
+group_imports = "StdExternalCrate"
