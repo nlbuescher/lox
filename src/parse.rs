@@ -168,14 +168,14 @@ impl Expression {
 					Slash => {
 						let left_number = left_value.as_number(left)?;
 						let right_number = right_value.as_number(right)?;
-						
+
 						Ok(Value::Number(left_number / right_number))
 					}
 
 					Star => {
 						let left_number = left_value.as_number(left)?;
 						let right_number = right_value.as_number(right)?;
-						
+
 						Ok(Value::Number(left_number * right_number))
 					}
 
@@ -230,6 +230,44 @@ impl Display for Expression {
 	}
 }
 
+impl Display for Value {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Value::Nil => write!(f, "nil"),
+			Value::Bool(b) => write!(f, "{b}"),
+			Value::Number(n) => write!(f, "{n}"),
+			Value::String(s) => write!(f, "{s}"),
+		}
+	}
+}
+
+#[derive(Debug, Clone)]
+pub enum Statement {
+	Expression(Expression),
+	Print(Expression),
+}
+
+impl Statement {
+	pub fn execute(&self) -> Result<Option<Value>, Error> {
+		match self {
+			Statement::Expression(expression) => expression.evaluate().map(Some),
+			Statement::Print(expression) => {
+				println!("{}", expression.evaluate()?);
+				Ok(None)
+			}
+		}
+	}
+}
+
+impl Display for Statement {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Statement::Expression(expression) => write!(f, "(expr {expression});"),
+			Statement::Print(expression) => write!(f, "(print {expression});"),
+		}
+	}
+}
+
 pub struct Parser<'a> {
 	tokens: Peekable<Tokens<'a>>,
 	previous: Option<Result<Token, TokenError>>,
@@ -240,8 +278,9 @@ impl<'a> Parser<'a> {
 		Parser { tokens: tokens.peekable(), previous: None }
 	}
 
-	fn peek(&mut self) -> Option<&Result<Token, TokenError>> {
-		self.tokens.peek()
+	fn peek(&mut self) -> &Result<Token, TokenError> {
+		// Tokens will always end with EndOfFile token
+		self.tokens.peek().unwrap()
 	}
 
 	fn previous(&mut self) -> Token {
@@ -253,7 +292,7 @@ impl<'a> Parser<'a> {
 	}
 
 	fn check(&mut self, token_type: TokenType) -> bool {
-		matches!(self.peek(), Some(Ok(it)) if it.token_type == token_type)
+		matches!(self.peek(), Ok(it) if it.token_type == token_type)
 	}
 
 	fn expect(&mut self, token_type: TokenType, message: &str) -> Result<(), Error> {
@@ -262,10 +301,7 @@ impl<'a> Parser<'a> {
 			Ok(())
 		}
 		else {
-			Err(Error::UnexpectedToken {
-				token: self.peek().unwrap().clone(),
-				message: message.to_string(),
-			})
+			Err(Error::UnexpectedToken { token: self.peek().clone(), message: message.to_string() })
 		}
 	}
 
@@ -318,7 +354,7 @@ impl<'a> Parser<'a> {
 		}
 
 		Err(Error::UnexpectedToken {
-			token: self.peek().unwrap().clone(),
+			token: self.peek().clone(),
 			message: "Expected expression".to_string(),
 		})
 	}
@@ -395,28 +431,59 @@ impl<'a> Parser<'a> {
 		self.parse_equality()
 	}
 
-	pub fn parse(&mut self) -> Result<Expression, Error> {
-		self.parse_expression()
+	fn parse_print_statement(&mut self) -> Result<Statement, Error> {
+		let value = self.parse_expression()?;
+		self.expect(Semicolon, "Expected ';' after value")?;
+		Ok(Statement::Print(value))
+	}
+
+	fn parse_expression_statement(&mut self) -> Result<Statement, Error> {
+		let value = self.parse_expression()?;
+		self.expect(Semicolon, "Expected ';' after expression")?;
+		Ok(Statement::Expression(value))
+	}
+
+	fn parse_statement(&mut self) -> Result<Statement, Error> {
+		if self.advance_if(Print) {
+			self.parse_print_statement()
+		}
+		else {
+			self.parse_expression_statement()
+		}
 	}
 
 	#[allow(dead_code)]
 	pub fn synchronize(&mut self) {
 		self.advance();
 
-		while self.peek().is_some() {
+		loop {
 			if self.previous().token_type == Semicolon {
 				return;
 			}
 
-			if let Some(Ok(Token {
+			if let Ok(Token {
 				token_type: Class | Fun | Var | For | If | While | Print | Return,
 				..
-			})) = self.peek()
+			}) = self.peek()
 			{
 				return;
 			}
 
 			self.advance();
+		}
+	}
+}
+
+impl Iterator for Parser<'_> {
+	type Item = Result<Statement, Error>;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		match self.peek() {
+			Ok(Token { token_type: EndOfFile, .. }) => {
+				self.advance();
+				None
+			}
+			_ => Some(self.parse_statement()),
 		}
 	}
 }
@@ -431,7 +498,7 @@ mod tests {
 		let expected = "true".to_string();
 
 		let actual = Parser::new(Tokens::new(input))
-			.parse()
+			.parse_expression()
 			.map_or_else(|error| format!("{error}"), |expression| format!("{expression}"));
 
 		assert_eq!(expected, actual);
@@ -443,7 +510,7 @@ mod tests {
 		let expected = "false".to_string();
 
 		let actual = Parser::new(Tokens::new(input))
-			.parse()
+			.parse_expression()
 			.map_or_else(|error| format!("{error}"), |expression| format!("{expression}"));
 
 		assert_eq!(expected, actual);
@@ -455,7 +522,7 @@ mod tests {
 		let expected = "420.69".to_string();
 
 		let actual = Parser::new(Tokens::new(input))
-			.parse()
+			.parse_expression()
 			.map_or_else(|error| format!("{error}"), |expression| format!("{expression}"));
 
 		assert_eq!(expected, actual);
@@ -467,7 +534,7 @@ mod tests {
 		let expected = "\"Hello, World!\"".to_string();
 
 		let actual = Parser::new(Tokens::new(input))
-			.parse()
+			.parse_expression()
 			.map_or_else(|error| format!("{error}"), |expression| format!("{expression}"));
 
 		assert_eq!(expected, actual);
@@ -479,7 +546,7 @@ mod tests {
 		let expected = "(+ 1 2)".to_string();
 
 		let actual = Parser::new(Tokens::new(input))
-			.parse()
+			.parse_expression()
 			.map_or_else(|error| format!("{error}"), |expression| format!("{expression}"));
 
 		assert_eq!(expected, actual);
@@ -491,7 +558,7 @@ mod tests {
 		let expected = "(+ (* (group (+ 1 2)) 3) 4)".to_string();
 
 		let actual = Parser::new(Tokens::new(input))
-			.parse()
+			.parse_expression()
 			.map_or_else(|error| format!("{error}"), |expression| format!("{expression}"));
 
 		assert_eq!(expected, actual);
@@ -503,7 +570,7 @@ mod tests {
 		let expected = "(- \"1\" \"2\")".to_string();
 
 		let actual = Parser::new(Tokens::new(input))
-			.parse()
+			.parse_expression()
 			.map_or_else(|error| format!("{error}"), |expression| format!("{expression}"));
 
 		assert_eq!(expected, actual);

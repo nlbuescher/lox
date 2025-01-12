@@ -24,12 +24,12 @@ fn run(source: &str) -> Result<(), Error> {
 	}
 	println!();
 
-	let mut parser = Parser::new(tokens);
-	let expression = parser.parse()?;
-
-	println!("Parse: {expression}");
-	print!("Evaluate: ");
-	println!("{:?}", expression.evaluate()?);
+	println!("Parse:");
+	for statement in Parser::new(tokens) {
+		let statement = statement?;
+		println!("{statement}");
+		statement.execute()?;
+	}
 
 	Ok(())
 }
@@ -71,7 +71,7 @@ mod tests {
 
 	#[test]
 	pub fn test() {
-		let input = "(\"1\" + \"2\") != \"3\"";
+		let input = "print 5; \"test\"; print((\"1\" + \"2\") == \"12\");";
 
 		if let Err(error) = run(input) {
 			println!("{error}");
