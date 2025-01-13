@@ -1,46 +1,54 @@
 use std::fmt::{Display, Formatter};
 use std::str::Chars;
-use std::string::String;
 
-use crate::tokenize::ErrorType::*;
-use crate::tokenize::TokenType::*;
+use crate::location::Location;
+use crate::value::Value;
+
+type Result = std::result::Result<Token, InvalidToken>;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ErrorType {
-	UnexpectedCharacter,
+pub enum ErrorKind {
+	UnknownChar,
 	UnterminatedString,
 }
 
-impl Display for ErrorType {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl ErrorKind {
+	fn as_str(&self) -> &'static str {
+		use ErrorKind::*;
 		match self {
-			UnexpectedCharacter => write!(f, "unexpected character"),
-			UnterminatedString => write!(f, "unterminated string"),
+			UnknownChar => "unknown character",
+			UnterminatedString => "unterminated string",
 		}
 	}
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Error {
-	pub location: Location,
-	pub error_type: ErrorType,
-	pub text: String,
-}
-
-impl Error {
-	pub fn new(location: Location, error: ErrorType, text: String) -> Error {
-		Error { error_type: error, text: text.into(), location }
+impl Display for ErrorKind {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		f.write_str(self.as_str())
 	}
 }
 
-impl Display for Error {
+#[derive(Debug, Clone, PartialEq)]
+pub struct InvalidToken {
+	pub kind: ErrorKind,
+	pub text: String,
+	pub location: Location,
+}
+
+impl InvalidToken {
+	pub fn new(kind: ErrorKind, text: impl Into<String>, location: Location) -> InvalidToken {
+		InvalidToken { kind, text: text.into(), location }
+	}
+}
+
+impl Display for InvalidToken {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{} {}: {}", self.location, self.error_type, self.text)
+		write!(f, "{} {}", self.kind, self.text)
 	}
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum TokenType {
+pub enum TokenKind {
 	// Single-character tokens
 	LeftParen,
 	RightParen,
@@ -92,105 +100,84 @@ pub enum TokenType {
 	EndOfFile,
 }
 
-impl Display for TokenType {
+impl TokenKind {
+	pub fn as_str(&self) -> &'static str {
+		use TokenKind::*;
+		match self {
+			LeftParen => "LEFT_PAREN",
+			RightParen => "RIGHT_PAREN",
+			LeftBrace => "LEFT_BRACE",
+			RightBrace => "RIGHT_BRACE",
+			Comma => "COMMA",
+			Dot => "DOT",
+			Minus => "MINUS",
+			Plus => "PLUS",
+			Semicolon => "SEMICOLON",
+			Slash => "SLASH",
+			Star => "STAR",
+
+			Bang => "BANG",
+			BangEqual => "BANG_EQUAL",
+			Equal => "EQUAL",
+			EqualEqual => "EQUAL_EQUAL",
+			Greater => "GREATER",
+			GreaterEqual => "GREATER_EQUAL",
+			Less => "LESS",
+			LessEqual => "LESS_EQUAL",
+
+			Identifier => "IDENTIFIER",
+			Number => "NUMBER",
+			String => "STRING",
+
+			And => "AND",
+			Class => "CLASS",
+			Else => "ELSE",
+			False => "FALSE",
+			Fun => "FUN",
+			For => "FOR",
+			If => "IF",
+			Nil => "NIL",
+			Or => "OR",
+			Print => "PRINT",
+			Return => "RETURN",
+			Super => "SUPER",
+			This => "THIS",
+			True => "TRUE",
+			Var => "VAR",
+			While => "WHILE",
+
+			Comment => "COMMENT",
+			EndOfFile => "EOF",
+		}
+	}
+}
+
+impl Display for TokenKind {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		write!(
-			f,
-			"{}",
-			match self {
-				LeftParen => "LEFT_PAREN",
-				RightParen => "RIGHT_PAREN",
-				LeftBrace => "LEFT_BRACE",
-				RightBrace => "RIGHT_BRACE",
-				Comma => "COMMA",
-				Dot => "DOT",
-				Minus => "MINUS",
-				Plus => "PLUS",
-				Semicolon => "SEMICOLON",
-				Slash => "SLASH",
-				Star => "STAR",
-
-				Bang => "BANG",
-				BangEqual => "BANG_EQUAL",
-				Equal => "EQUAL",
-				EqualEqual => "EQUAL_EQUAL",
-				Greater => "GREATER",
-				GreaterEqual => "GREATER_EQUAL",
-				Less => "LESS",
-				LessEqual => "LESS_EQUAL",
-
-				Identifier => "IDENTIFIER",
-				Number => "NUMBER",
-				TokenType::String => "STRING",
-
-				And => "AND",
-				Class => "CLASS",
-				Else => "ELSE",
-				False => "FALSE",
-				Fun => "FUN",
-				For => "FOR",
-				If => "IF",
-				Nil => "NIL",
-				Or => "OR",
-				Print => "PRINT",
-				Return => "RETURN",
-				Super => "SUPER",
-				This => "THIS",
-				True => "TRUE",
-				Var => "VAR",
-				While => "WHILE",
-
-				Comment => "COMMENT",
-				EndOfFile => "EOF",
-			}
-		)
+		f.write_str(self.as_str())
 	}
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Location {
-	pub line: usize,
-	pub column: usize,
-}
-
-impl Location {
-	pub fn new(line: usize, column: usize) -> Location {
-		Location { line, column }
-	}
-}
-
-impl Display for Location {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		write!(f, "[{}:{}]", self.line, self.column)
-	}
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Value {
-	Number(f64),
-	String(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
-	pub location: Location,
-	pub token_type: TokenType,
+	pub kind: TokenKind,
 	pub text: String,
 	pub value: Option<Value>,
+	pub location: Location,
 }
 
 impl Token {
-	pub fn with_text(location: Location, token_type: TokenType, text: impl Into<String>) -> Self {
-		Token { location, token_type, text: text.into(), value: None }
+	pub fn with_text(kind: TokenKind, text: impl Into<String>, location: Location) -> Self {
+		Token { location, kind, text: text.into(), value: None }
 	}
 
 	pub fn with_value(
-		location: Location,
-		token_type: TokenType,
+		kind: TokenKind,
 		text: impl Into<String>,
 		value: Value,
+		location: Location,
 	) -> Self {
-		Token { location, token_type, text: text.into(), value: Some(value) }
+		Token { location, kind, text: text.into(), value: Some(value) }
 	}
 }
 
@@ -198,10 +185,10 @@ impl Display for Token {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Token { value: Some(value), .. } => {
-				write!(f, "{} {} {} {:?}", self.location, self.token_type, self.text, value)
+				write!(f, "{} {} {:?}", self.kind, self.text, value)
 			}
 			Token { value: None, .. } => {
-				write!(f, "{} {} {}", self.location, self.token_type, self.text)
+				write!(f, "{} {}", self.kind, self.text)
 			}
 		}
 	}
@@ -289,50 +276,47 @@ impl<'a> Tokens<'a> {
 		self.start_location = self.current_location.clone();
 	}
 
-	fn get_error(&mut self, error_type: ErrorType) -> Error {
-		let result = Error {
-			location: self.start_location.clone(),
-			error_type,
-			text: self.buffer.as_str().into(),
-		};
-
-		self.reset_buffer();
-
-		result
-	}
-
-	fn get_token(&mut self, token_type: TokenType) -> Token {
+	fn get_error(&mut self, error_type: ErrorKind) -> InvalidToken {
 		let result =
-			Token::with_text(self.start_location.clone(), token_type, self.buffer.as_str());
+			InvalidToken::new(error_type, self.buffer.as_str(), self.start_location.clone());
 
 		self.reset_buffer();
 
 		result
 	}
 
-	fn get_value_token(&mut self, token_type: TokenType, value: Value) -> Token {
+	fn get_token(&mut self, token_type: TokenKind) -> Token {
 		let result =
-			Token::with_value(self.start_location.clone(), token_type, self.buffer.as_str(), value);
+			Token::with_text(token_type, self.buffer.as_str(), self.start_location.clone());
 
 		self.reset_buffer();
 
 		result
 	}
 
-	fn get_string_token(&mut self) -> Result<Token, Error> {
+	fn get_value_token(&mut self, token_type: TokenKind, value: Value) -> Token {
+		let result =
+			Token::with_value(token_type, self.buffer.as_str(), value, self.start_location.clone());
+
+		self.reset_buffer();
+
+		result
+	}
+
+	fn get_string_token(&mut self) -> Result {
 		while self.peek() != Some(&'"') && self.peek() != None {
 			self.advance(true);
 		}
 
 		if self.peek() == None {
-			Err(self.get_error(UnterminatedString))
+			Err(self.get_error(ErrorKind::UnterminatedString))
 		}
 		else {
 			// consume the closing quote
 			self.advance(true);
 
 			Ok(self.get_value_token(
-				TokenType::String,
+				TokenKind::String,
 				Value::String(self.buffer[1..self.buffer.len() - 1].to_string()),
 			))
 		}
@@ -352,13 +336,15 @@ impl<'a> Tokens<'a> {
 			}
 		}
 
-		self.get_value_token(Number, Value::Number(self.buffer.parse::<f64>().unwrap()))
+		self.get_value_token(TokenKind::Number, Value::Number(self.buffer.parse::<f64>().unwrap()))
 	}
 
 	fn get_identifier_token(&mut self) -> Token {
 		while self.peek().take_if(|it| **it == '_' || it.is_ascii_alphanumeric()) != None {
 			self.advance(false);
 		}
+
+		use TokenKind::*;
 
 		match self.buffer.as_str() {
 			"and" => self.get_token(And),
@@ -383,7 +369,7 @@ impl<'a> Tokens<'a> {
 }
 
 impl Iterator for Tokens<'_> {
-	type Item = Result<Token, Error>;
+	type Item = Result;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		if !self.has_next {
@@ -391,6 +377,8 @@ impl Iterator for Tokens<'_> {
 		}
 
 		let next = self.advance(false);
+
+		use TokenKind::*;
 
 		if next.is_none() {
 			self.has_next = false;
@@ -449,19 +437,24 @@ impl Iterator for Tokens<'_> {
 
 			c if c.is_ascii_alphabetic() || c == '_' => Some(Ok(self.get_identifier_token())),
 
-			_ => Some(Err(self.get_error(UnexpectedCharacter))),
+			_ => Some(Err(self.get_error(ErrorKind::UnknownChar))),
 		}
 	}
 }
 
 #[cfg(test)]
 mod tests {
+	use std::string::String;
+
+	use ErrorKind::*;
+	use TokenKind::*;
+
 	use super::*;
 
 	#[test]
 	pub fn empty_source() {
 		let input = "";
-		let expected = vec![Ok(Token::with_text(Location::new(1, 1), EndOfFile, ""))];
+		let expected = vec![Ok(Token::with_text(EndOfFile, "", Location::new(1, 1)))];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
 
@@ -472,10 +465,10 @@ mod tests {
 	pub fn parentheses() {
 		let input = "(()";
 		let expected = vec![
-			Ok(Token::with_text(Location::new(1, 1), LeftParen, "(")),
-			Ok(Token::with_text(Location::new(1, 2), LeftParen, "(")),
-			Ok(Token::with_text(Location::new(1, 3), RightParen, ")")),
-			Ok(Token::with_text(Location::new(1, 4), EndOfFile, "")),
+			Ok(Token::with_text(LeftParen, "(", Location::new(1, 1))),
+			Ok(Token::with_text(LeftParen, "(", Location::new(1, 2))),
+			Ok(Token::with_text(RightParen, ")", Location::new(1, 3))),
+			Ok(Token::with_text(EndOfFile, "", Location::new(1, 4))),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -487,9 +480,9 @@ mod tests {
 	pub fn whitespace() {
 		let input = "\t(  \t(";
 		let expected = vec![
-			Ok(Token::with_text(Location::new(1, 5), LeftParen, "(")),
-			Ok(Token::with_text(Location::new(1, 9), LeftParen, "(")),
-			Ok(Token::with_text(Location::new(1, 10), EndOfFile, "")),
+			Ok(Token::with_text(LeftParen, "(", Location::new(1, 5))),
+			Ok(Token::with_text(LeftParen, "(", Location::new(1, 9))),
+			Ok(Token::with_text(EndOfFile, "", Location::new(1, 10))),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -501,8 +494,8 @@ mod tests {
 	pub fn newlines() {
 		let input = "\r\n\r\n  (\n";
 		let expected = vec![
-			Ok(Token::with_text(Location::new(3, 3), LeftParen, "(")),
-			Ok(Token::with_text(Location::new(4, 1), EndOfFile, "")),
+			Ok(Token::with_text(LeftParen, "(", Location::new(3, 3))),
+			Ok(Token::with_text(EndOfFile, "", Location::new(4, 1))),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -514,11 +507,11 @@ mod tests {
 	pub fn braces() {
 		let input = "{{}}";
 		let expected = vec![
-			Ok(Token::with_text(Location::new(1, 1), LeftBrace, "{")),
-			Ok(Token::with_text(Location::new(1, 2), LeftBrace, "{")),
-			Ok(Token::with_text(Location::new(1, 3), RightBrace, "}")),
-			Ok(Token::with_text(Location::new(1, 4), RightBrace, "}")),
-			Ok(Token::with_text(Location::new(1, 5), EndOfFile, "")),
+			Ok(Token::with_text(LeftBrace, "{", Location::new(1, 1))),
+			Ok(Token::with_text(LeftBrace, "{", Location::new(1, 2))),
+			Ok(Token::with_text(RightBrace, "}", Location::new(1, 3))),
+			Ok(Token::with_text(RightBrace, "}", Location::new(1, 4))),
+			Ok(Token::with_text(EndOfFile, "", Location::new(1, 5))),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -530,17 +523,17 @@ mod tests {
 	pub fn other_single_character_tokens() {
 		let input = "({+.*,- ;})";
 		let expected = vec![
-			Ok(Token::with_text(Location::new(1, 1), LeftParen, "(")),
-			Ok(Token::with_text(Location::new(1, 2), LeftBrace, "{")),
-			Ok(Token::with_text(Location::new(1, 3), Plus, "+")),
-			Ok(Token::with_text(Location::new(1, 4), Dot, ".")),
-			Ok(Token::with_text(Location::new(1, 5), Star, "*")),
-			Ok(Token::with_text(Location::new(1, 6), Comma, ",")),
-			Ok(Token::with_text(Location::new(1, 7), Minus, "-")),
-			Ok(Token::with_text(Location::new(1, 9), Semicolon, ";")),
-			Ok(Token::with_text(Location::new(1, 10), RightBrace, "}")),
-			Ok(Token::with_text(Location::new(1, 11), RightParen, ")")),
-			Ok(Token::with_text(Location::new(1, 12), EndOfFile, "")),
+			Ok(Token::with_text(LeftParen, "(", Location::new(1, 1))),
+			Ok(Token::with_text(LeftBrace, "{", Location::new(1, 2))),
+			Ok(Token::with_text(Plus, "+", Location::new(1, 3))),
+			Ok(Token::with_text(Dot, ".", Location::new(1, 4))),
+			Ok(Token::with_text(Star, "*", Location::new(1, 5))),
+			Ok(Token::with_text(Comma, ",", Location::new(1, 6))),
+			Ok(Token::with_text(Minus, "-", Location::new(1, 7))),
+			Ok(Token::with_text(Semicolon, ";", Location::new(1, 9))),
+			Ok(Token::with_text(RightBrace, "}", Location::new(1, 10))),
+			Ok(Token::with_text(RightParen, ")", Location::new(1, 11))),
+			Ok(Token::with_text(EndOfFile, "", Location::new(1, 12))),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -552,12 +545,12 @@ mod tests {
 	pub fn unknown_character() {
 		let input = ".,$(#";
 		let expected = vec![
-			Ok(Token::with_text(Location::new(1, 1), Dot, ".")),
-			Ok(Token::with_text(Location::new(1, 2), Comma, ",")),
-			Err(Error::new(Location::new(1, 3), UnexpectedCharacter, String::from("$"))),
-			Ok(Token::with_text(Location::new(1, 4), LeftParen, "(")),
-			Err(Error::new(Location::new(1, 5), UnexpectedCharacter, String::from("#"))),
-			Ok(Token::with_text(Location::new(1, 6), EndOfFile, "")),
+			Ok(Token::with_text(Dot, ".", Location::new(1, 1))),
+			Ok(Token::with_text(Comma, ",", Location::new(1, 2))),
+			Err(InvalidToken::new(UnknownChar, "$", Location::new(1, 3))),
+			Ok(Token::with_text(LeftParen, "(", Location::new(1, 4))),
+			Err(InvalidToken::new(UnknownChar, "#", Location::new(1, 5))),
+			Ok(Token::with_text(EndOfFile, "", Location::new(1, 6))),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -569,15 +562,15 @@ mod tests {
 	pub fn operators() {
 		let input = "! != = == > >= < <=";
 		let expected = vec![
-			Ok(Token::with_text(Location::new(1, 1), Bang, "!")),
-			Ok(Token::with_text(Location::new(1, 3), BangEqual, "!=")),
-			Ok(Token::with_text(Location::new(1, 6), Equal, "=")),
-			Ok(Token::with_text(Location::new(1, 8), EqualEqual, "==")),
-			Ok(Token::with_text(Location::new(1, 11), Greater, ">")),
-			Ok(Token::with_text(Location::new(1, 13), GreaterEqual, ">=")),
-			Ok(Token::with_text(Location::new(1, 16), Less, "<")),
-			Ok(Token::with_text(Location::new(1, 18), LessEqual, "<=")),
-			Ok(Token::with_text(Location::new(1, 20), EndOfFile, "")),
+			Ok(Token::with_text(Bang, "!", Location::new(1, 1))),
+			Ok(Token::with_text(BangEqual, "!=", Location::new(1, 3))),
+			Ok(Token::with_text(Equal, "=", Location::new(1, 6))),
+			Ok(Token::with_text(EqualEqual, "==", Location::new(1, 8))),
+			Ok(Token::with_text(Greater, ">", Location::new(1, 11))),
+			Ok(Token::with_text(GreaterEqual, ">=", Location::new(1, 13))),
+			Ok(Token::with_text(Less, "<", Location::new(1, 16))),
+			Ok(Token::with_text(LessEqual, "<=", Location::new(1, 18))),
+			Ok(Token::with_text(EndOfFile, "", Location::new(1, 20))),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -589,9 +582,9 @@ mod tests {
 	pub fn comments() {
 		let input = "// comment\n/";
 		let expected = vec![
-			Ok(Token::with_text(Location::new(1, 1), Comment, String::from("// comment"))),
-			Ok(Token::with_text(Location::new(2, 1), Slash, "/")),
-			Ok(Token::with_text(Location::new(2, 2), EndOfFile, "")),
+			Ok(Token::with_text(Comment, String::from("// comment"), Location::new(1, 1))),
+			Ok(Token::with_text(Slash, "/", Location::new(2, 1))),
+			Ok(Token::with_text(EndOfFile, "", Location::new(2, 2))),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -604,13 +597,13 @@ mod tests {
 		let input = "\"test\"\"test";
 		let expected = vec![
 			Ok(Token::with_value(
-				Location::new(1, 1),
-				TokenType::String,
+				TokenKind::String,
 				"\"test\"",
 				Value::String("test".into()),
+				Location::new(1, 1),
 			)),
-			Err(Error::new(Location::new(1, 7), UnterminatedString, String::from("\"test"))),
-			Ok(Token::with_text(Location::new(1, 12), EndOfFile, "")),
+			Err(InvalidToken::new(UnterminatedString, "\"test", Location::new(1, 7))),
+			Ok(Token::with_text(EndOfFile, "", Location::new(1, 12))),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -622,12 +615,12 @@ mod tests {
 	pub fn numbers() {
 		let input = "420.69\n.5\n5.";
 		let expected = vec![
-			Ok(Token::with_value(Location::new(1, 1), Number, "420.69", Value::Number(420.69))),
-			Ok(Token::with_text(Location::new(2, 1), Dot, ".")),
-			Ok(Token::with_value(Location::new(2, 2), Number, "5", Value::Number(5.))),
-			Ok(Token::with_value(Location::new(3, 1), Number, "5", Value::Number(5.))),
-			Ok(Token::with_text(Location::new(3, 2), Dot, ".")),
-			Ok(Token::with_text(Location::new(3, 3), EndOfFile, "")),
+			Ok(Token::with_value(Number, "420.69", Value::Number(420.69), Location::new(1, 1))),
+			Ok(Token::with_text(Dot, ".", Location::new(2, 1))),
+			Ok(Token::with_value(Number, "5", Value::Number(5.), Location::new(2, 2))),
+			Ok(Token::with_value(Number, "5", Value::Number(5.), Location::new(3, 1))),
+			Ok(Token::with_text(Dot, ".", Location::new(3, 2))),
+			Ok(Token::with_text(EndOfFile, "", Location::new(3, 3))),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -639,8 +632,8 @@ mod tests {
 	pub fn identifiers() {
 		let input = "orchid";
 		let expected = vec![
-			Ok(Token::with_text(Location::new(1, 1), Identifier, String::from("orchid"))),
-			Ok(Token::with_text(Location::new(1, 7), EndOfFile, "")),
+			Ok(Token::with_text(Identifier, String::from("orchid"), Location::new(1, 1))),
+			Ok(Token::with_text(EndOfFile, "", Location::new(1, 7))),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -652,23 +645,23 @@ mod tests {
 	pub fn keywords() {
 		let input = "and class else false for fun if nil or print return super this true var while";
 		let expected = vec![
-			Ok(Token::with_text(Location::new(1, 1), And, "and")),
-			Ok(Token::with_text(Location::new(1, 5), Class, "class")),
-			Ok(Token::with_text(Location::new(1, 11), Else, "else")),
-			Ok(Token::with_text(Location::new(1, 16), False, "false")),
-			Ok(Token::with_text(Location::new(1, 22), For, "for")),
-			Ok(Token::with_text(Location::new(1, 26), Fun, "fun")),
-			Ok(Token::with_text(Location::new(1, 30), If, "if")),
-			Ok(Token::with_text(Location::new(1, 33), Nil, "nil")),
-			Ok(Token::with_text(Location::new(1, 37), Or, "or")),
-			Ok(Token::with_text(Location::new(1, 40), Print, "print")),
-			Ok(Token::with_text(Location::new(1, 46), Return, "return")),
-			Ok(Token::with_text(Location::new(1, 53), Super, "super")),
-			Ok(Token::with_text(Location::new(1, 59), This, "this")),
-			Ok(Token::with_text(Location::new(1, 64), True, "true")),
-			Ok(Token::with_text(Location::new(1, 69), Var, "var")),
-			Ok(Token::with_text(Location::new(1, 73), While, "while")),
-			Ok(Token::with_text(Location::new(1, 78), EndOfFile, "")),
+			Ok(Token::with_text(And, "and", Location::new(1, 1))),
+			Ok(Token::with_text(Class, "class", Location::new(1, 5))),
+			Ok(Token::with_text(Else, "else", Location::new(1, 11))),
+			Ok(Token::with_text(False, "false", Location::new(1, 16))),
+			Ok(Token::with_text(For, "for", Location::new(1, 22))),
+			Ok(Token::with_text(Fun, "fun", Location::new(1, 26))),
+			Ok(Token::with_text(If, "if", Location::new(1, 30))),
+			Ok(Token::with_text(Nil, "nil", Location::new(1, 33))),
+			Ok(Token::with_text(Or, "or", Location::new(1, 37))),
+			Ok(Token::with_text(Print, "print", Location::new(1, 40))),
+			Ok(Token::with_text(Return, "return", Location::new(1, 46))),
+			Ok(Token::with_text(Super, "super", Location::new(1, 53))),
+			Ok(Token::with_text(This, "this", Location::new(1, 59))),
+			Ok(Token::with_text(True, "true", Location::new(1, 64))),
+			Ok(Token::with_text(Var, "var", Location::new(1, 69))),
+			Ok(Token::with_text(While, "while", Location::new(1, 73))),
+			Ok(Token::with_text(EndOfFile, "", Location::new(1, 78))),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();

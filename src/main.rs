@@ -1,12 +1,16 @@
 use std::io::{stdin, stdout, BufRead, Write};
+use std::process::ExitCode;
 
 use crate::error::Error;
 use crate::parse::Parser;
 use crate::tokenize::*;
 
 mod error;
+mod interpret;
+mod location;
 mod parse;
 mod tokenize;
+mod value;
 
 fn run(source: &str) -> Result<(), Error> {
 	println!("Source:");
@@ -48,21 +52,30 @@ fn run_prompt() -> Result<(), Error> {
 }
 
 fn run_file(filename: &str) -> Result<(), Error> {
-	let source = std::fs::read_to_string(filename).inspect_err(|error| {
-		eprintln!("Unable to read file {filename}: {error}");
-	})?;
+	let source = std::fs::read_to_string(filename)?;
 
 	run(&source)
 }
 
-pub fn main() -> Result<(), Error> {
+pub fn main() -> ExitCode {
 	let args = std::env::args().collect::<Vec<String>>();
 
-	match args.len() {
+	let result = match args.len() {
 		1 => run_prompt(),
 		2 => run_file(&args[1]),
-		_ => Err(Error::Usage(args[0].clone())),
+		_ => Err(Error::BadUsage(args)),
+	};
+
+	if let Err(error) = result {
+		eprintln!("{error}");
+
+		return match error {
+			Error::Runtime(_) => ExitCode::from(70),
+			_ => ExitCode::from(65),
+		};
 	}
+
+	ExitCode::SUCCESS
 }
 
 #[cfg(test)]
