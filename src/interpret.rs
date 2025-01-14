@@ -60,13 +60,31 @@ impl Value {
 	}
 }
 
-impl Expression {
-	pub fn evaluate(&self) -> Result<Value, RuntimeError> {
+#[derive(Debug)]
+pub struct Interpreter {}
+
+impl Interpreter {
+	pub fn new() -> Self {
+		Interpreter {}
+	}
+
+	pub fn execute(&mut self, statement: &Statement) -> Result<Option<Value>, RuntimeError> {
+		match statement {
+			Statement::Expression(expression) => self.evaluate_expression(expression).map(Some),
+			Statement::Print(expression) => {
+				println!("{}", self.evaluate_expression(expression)?.to_string());
+
+				Ok(None)
+			}
+		}
+	}
+
+	fn evaluate_expression(&self, expression: &Expression) -> Result<Value, RuntimeError> {
 		use crate::tokenize::TokenKind::*;
-		match self {
+		match expression {
 			Expression::Binary { left, operator, right } => {
-				let left_value = left.evaluate()?;
-				let right_value = right.evaluate()?;
+				let left_value = self.evaluate_expression(left)?;
+				let right_value = self.evaluate_expression(right)?;
 
 				match operator.kind {
 					Greater => {
@@ -140,12 +158,12 @@ impl Expression {
 				}
 			}
 
-			Expression::Grouping(expression) => expression.evaluate(),
+			Expression::Grouping(expression) => self.evaluate_expression(expression),
 
 			Expression::Literal(value, _) => Ok(value.clone()),
 
 			Expression::Unary { operator, right } => {
-				let right_value = right.evaluate()?;
+				let right_value = self.evaluate_expression(right)?;
 
 				match operator.kind {
 					Bang => Ok(Value::Bool(!right_value.is_truthy())),
@@ -158,19 +176,6 @@ impl Expression {
 
 					_ => unreachable!("Unknown operator evaluating unary expression!"),
 				}
-			}
-		}
-	}
-}
-
-impl Statement {
-	pub fn execute(&self) -> Result<Option<Value>, RuntimeError> {
-		match self {
-			Statement::Expression(expression) => expression.evaluate().map(Some),
-			Statement::Print(expression) => {
-				println!("{}", expression.evaluate()?.to_string());
-
-				Ok(None)
 			}
 		}
 	}

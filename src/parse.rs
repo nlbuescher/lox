@@ -70,6 +70,7 @@ impl Display for Statement {
 	}
 }
 
+#[derive(Debug, Clone)]
 pub struct Parser<'a> {
 	tokens: Peekable<Tokens<'a>>,
 	previous: Option<Result<Token, InvalidToken>>,
@@ -85,12 +86,14 @@ impl<'a> Parser<'a> {
 		self.tokens.peek().unwrap()
 	}
 
+	/// Gets the previous Token, which is assumed to be valid and present. This function must only
+	/// be called after at least one advance, and only if the previous Token was valid.
 	fn previous(&mut self) -> Token {
-		if self.previous.is_none() {
-			panic!("Don't call `previous` before parsing something!")
+		match self.previous {
+			Some(Ok(ref token)) => token.clone(),
+			Some(Err(_)) => panic!("Don't call `previous` on an error token!"),
+			None => panic!("Don't call `previous` before parsing something!"),
 		}
-
-		self.previous.take().unwrap().unwrap()
 	}
 
 	fn check(&mut self, token_type: TokenKind) -> bool {
