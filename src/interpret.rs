@@ -1,24 +1,42 @@
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 
 use crate::location::Location;
 use crate::parse::{Expression, Statement};
+use crate::tokenize::Token;
 use crate::value::Value;
 
 #[derive(Debug)]
-pub struct RuntimeError {
-	pub location: Location,
-	pub expected: String,
-	pub actual: String,
+pub enum RuntimeError {
+	WrongType { location: Location, expected: String, actual: String },
+	VariableNotDefined { location: Location, name: String },
 }
 
 impl Display for RuntimeError {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		let RuntimeError { location, expected, actual } = self;
-		write!(f, "{location} Expected {expected} but got {actual}")
+		use RuntimeError::*;
+
+		match self {
+			WrongType { location, expected, actual } => {
+				write!(f, "{location} Expected {expected} but got {actual}")
+			}
+			VariableNotDefined { location, name } => {
+				write!(f, "{location} {name} is not defined")
+			}
+		}
 	}
 }
 
 impl Value {
+	fn type_name(&self) -> &'static str {
+		match self {
+			Value::Nil => "Nothing",
+			Value::Bool(_) => "Bool",
+			Value::Number(_) => "Number",
+			Value::String(_) => "String",
+		}
+	}
+
 	fn is_truthy(&self) -> bool {
 		match self {
 			Value::Nil => false,
@@ -31,10 +49,10 @@ impl Value {
 	fn as_number(&self, expression: &Expression) -> Result<&f64, RuntimeError> {
 		match self {
 			Value::Number(n) => Ok(n),
-			_ => Err(RuntimeError {
-				location: expression.location(),
+			_ => Err(RuntimeError::WrongType {
+				location: expression.location().clone(),
 				expected: "number".into(),
-				actual: self.to_string(),
+				actual: self.type_name().into(),
 			}),
 		}
 	}
@@ -42,10 +60,10 @@ impl Value {
 	fn as_string(&self, expression: &Expression) -> Result<String, RuntimeError> {
 		match self {
 			Value::String(s) => Ok(s.clone()),
-			_ => Err(RuntimeError {
-				location: expression.location(),
+			_ => Err(RuntimeError::WrongType {
+				location: expression.location().clone(),
 				expected: "string".into(),
-				actual: self.to_string(),
+				actual: self.type_name().into(),
 			}),
 		}
 	}
@@ -61,18 +79,30 @@ impl Value {
 }
 
 #[derive(Debug)]
-pub struct Interpreter {}
+pub struct Environment {
+	values: HashMap<String, Option<Value>>,
+}
 
-impl Interpreter {
+impl Environment {
 	pub fn new() -> Self {
-		Interpreter {}
+		Environment { values: HashMap::new() }
 	}
 
 	pub fn execute(&mut self, statement: &Statement) -> Result<Option<Value>, RuntimeError> {
 		match statement {
-			Statement::Expression(expression) => self.evaluate_expression(expression).map(Some),
-			Statement::Print(expression) => {
-				println!("{}", self.evaluate_expression(expression)?.to_string());
+			Statement::Expression { value } => self.evaluate_expression(value).map(Some),
+			Statement::Print { value } => {
+				println!("{}", self.evaluate_expression(value)?.to_string());
+
+				Ok(None)
+			}
+			Statement::VariableDeclaration { name, value } => {
+				if let Some(value) = value {
+					self.values.insert(name.text.clone(), Some(self.evaluate_expression(value)?));
+				}
+				else {
+					self.values.insert(name.text.clone(), None);
+				}
 
 				Ok(None)
 			}
@@ -177,6 +207,15 @@ impl Interpreter {
 					_ => unreachable!("Unknown operator evaluating unary expression!"),
 				}
 			}
+
+			Expression::Variable(Token { location, text, .. }) => match self.values.get(text) {
+				None => Err(RuntimeError::VariableNotDefined {
+					location: location.clone(),
+					name: text.clone(),
+				}),
+				Some(None) => Ok(Value::Nil),
+				Some(Some(value)) => Ok(value.clone()),
+			},
 		}
 	}
 }

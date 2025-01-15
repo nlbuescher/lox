@@ -4,7 +4,7 @@ use std::str::Chars;
 use crate::location::Location;
 use crate::value::Value;
 
-type Result = std::result::Result<Token, InvalidToken>;
+pub type Result = std::result::Result<Token, InvalidToken>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ErrorKind {

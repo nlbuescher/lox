@@ -2,9 +2,9 @@ use std::io::{stdin, stdout, BufRead, Write};
 use std::process::ExitCode;
 
 use crate::error::Error;
-use crate::interpret::Interpreter;
+use crate::interpret::Environment;
 use crate::parse::Parser;
-use crate::tokenize::*;
+use crate::tokenize::Tokens;
 
 mod error;
 mod interpret;
@@ -38,18 +38,18 @@ pub fn main() -> ExitCode {
 
 fn run_file(filename: &str) -> Result<(), Error> {
 	let source = std::fs::read_to_string(filename)?;
-	let mut interpreter = Interpreter::new();
+	let mut interpreter = Environment::new();
 	run(&source, &mut interpreter)
 }
 
 fn run_prompt() -> Result<(), Error> {
-	let mut interpreter = Interpreter::new();
+	let mut environment = Environment::new();
 
 	print!("> ");
 	stdout().flush()?;
 
 	for line in stdin().lock().lines() {
-		run(&line?, &mut interpreter)?;
+		run(&line?, &mut environment)?;
 		print!("> ");
 		stdout().flush()?;
 	}
@@ -57,7 +57,7 @@ fn run_prompt() -> Result<(), Error> {
 	Ok(())
 }
 
-fn run(source: &str, interpreter: &mut Interpreter) -> Result<(), Error> {
+fn run(source: &str, environment: &mut Environment) -> Result<(), Error> {
 	println!("Source:");
 	println!("{source}");
 	println!();
@@ -87,7 +87,7 @@ fn run(source: &str, interpreter: &mut Interpreter) -> Result<(), Error> {
 	println!("Interpret:");
 	for statement in parser {
 		let statement = statement?;
-		interpreter.execute(&statement)?;
+		environment.execute(&statement)?;
 	}
 	println!();
 
@@ -100,11 +100,11 @@ mod tests {
 
 	#[test]
 	pub fn test() {
-		let input = "print 5; \"test\"; print((\"1\" + \"2\") == \"12\");";
+		let input = "var a = 60; var b = 9; print a + b;";
 
-		let mut interpreter = Interpreter::new();
+		let mut environment = Environment::new();
 
-		if let Err(error) = run(input, &mut interpreter) {
+		if let Err(error) = run(input, &mut environment) {
 			println!("{error}");
 		}
 	}
