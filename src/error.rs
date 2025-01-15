@@ -12,7 +12,7 @@ pub enum Error {
 }
 
 impl Display for Error {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		match self {
 			Error::BadUsage(args) => write!(f, "Usage: {} <filename>", &args[0]),
 			Error::Io(inner) => inner.fmt(f),

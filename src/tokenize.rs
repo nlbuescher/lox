@@ -23,7 +23,7 @@ impl ErrorKind {
 }
 
 impl Display for ErrorKind {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		f.write_str(self.as_str())
 	}
 }
@@ -42,7 +42,7 @@ impl InvalidToken {
 }
 
 impl Display for InvalidToken {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		write!(f, "{} {}", self.kind, self.text)
 	}
 }
@@ -153,7 +153,7 @@ impl TokenKind {
 }
 
 impl Display for TokenKind {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		f.write_str(self.as_str())
 	}
 }
@@ -182,7 +182,7 @@ impl Token {
 }
 
 impl Display for Token {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		match self {
 			Token { value: Some(value), .. } => {
 				write!(f, "{} {} {:?}", self.kind, self.text, value)

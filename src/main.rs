@@ -79,15 +79,25 @@ fn run(source: &str, environment: &mut Environment) -> Result<(), Error> {
 	for statement in parser.clone() {
 		match statement {
 			Ok(statement) => println!("{statement}"),
-			Err(error) => println!("{error}"),
+			Err(error) => {
+				println!("{error}\n");
+				return Ok(());
+			}
 		}
 	}
 	println!();
 
 	println!("Interpret:");
 	for statement in parser {
-		let statement = statement?;
-		environment.execute(&statement)?;
+		let result = statement.map_or_else(
+			|error| Err(Error::from(error)),
+			|statement| Ok(environment.execute(&statement)?),
+		);
+
+		if let Err(error) = result {
+			println!("{error}");
+			break;
+		}
 	}
 	println!();
 

@@ -13,7 +13,7 @@ pub enum RuntimeError {
 }
 
 impl Display for RuntimeError {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		use RuntimeError::*;
 
 		match self {
@@ -80,7 +80,7 @@ impl Value {
 
 #[derive(Debug)]
 pub struct Environment {
-	values: HashMap<String, Option<Value>>,
+	values: HashMap<String, Value>,
 }
 
 impl Environment {
@@ -90,28 +90,43 @@ impl Environment {
 
 	pub fn execute(&mut self, statement: &Statement) -> Result<Option<Value>, RuntimeError> {
 		match statement {
-			Statement::Expression { value } => self.evaluate_expression(value).map(Some),
-			Statement::Print { value } => {
+			Statement::Expression { expression: value } => {
+				self.evaluate_expression(value).map(Some)
+			}
+			Statement::Print { expression: value } => {
 				println!("{}", self.evaluate_expression(value)?.to_string());
 
 				Ok(None)
 			}
-			Statement::VariableDeclaration { name, value } => {
-				if let Some(value) = value {
-					self.values.insert(name.text.clone(), Some(self.evaluate_expression(value)?));
-				}
-				else {
-					self.values.insert(name.text.clone(), None);
-				}
+			Statement::VariableDeclaration { name, initializer } => {
+				let value = match initializer {
+					Some(initializer) => self.evaluate_expression(initializer)?,
+					None => Value::Nil,
+				};
+
+				self.values.insert(name.text.clone(), value);
 
 				Ok(None)
 			}
 		}
 	}
 
-	fn evaluate_expression(&self, expression: &Expression) -> Result<Value, RuntimeError> {
+	fn evaluate_expression(&mut self, expression: &Expression) -> Result<Value, RuntimeError> {
 		use crate::tokenize::TokenKind::*;
 		match expression {
+			Expression::Assignment { name: Token { location, text, .. }, value } => {
+				if !self.values.contains_key(text) {
+					return Err(RuntimeError::VariableNotDefined {
+						location: location.clone(),
+						name: text.clone(),
+					});
+				}
+
+				let value = self.evaluate_expression(value)?;
+				self.values.insert(text.clone(), value.clone());
+				Ok(value)
+			}
+
 			Expression::Binary { left, operator, right } => {
 				let left_value = self.evaluate_expression(left)?;
 				let right_value = self.evaluate_expression(right)?;
@@ -213,8 +228,7 @@ impl Environment {
 					location: location.clone(),
 					name: text.clone(),
 				}),
-				Some(None) => Ok(Value::Nil),
-				Some(Some(value)) => Ok(value.clone()),
+				Some(value) => Ok(value.clone()),
 			},
 		}
 	}

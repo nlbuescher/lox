@@ -10,21 +10,27 @@ use crate::value::Value;
 pub type Result<T> = std::result::Result<T, ParseError>;
 
 #[derive(Debug)]
-pub struct ParseError {
-	location: Location,
-	expected: String,
-	actual: String,
+pub enum ParseError {
+	UnexpectedToken { location: Location, expected: String, actual: String },
+	InvalidAssignment { location: Location },
 }
 
 impl Display for ParseError {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		let ParseError { location, expected, actual } = self;
-		write!(f, "{location} Expected {expected} but got {actual}")
+	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+		use ParseError::*;
+
+		match self {
+			UnexpectedToken { location, expected, actual } => {
+				write!(f, "{location} Expected {expected} but got {actual}")
+			}
+			InvalidAssignment { location } => write!(f, "{location} Invalid assignment target"),
+		}
 	}
 }
 
 #[derive(Debug, Clone)]
 pub enum Expression {
+	Assignment { name: Token, value: Box<Expression> },
 	Binary { left: Box<Expression>, operator: Token, right: Box<Expression> },
 	Literal(Value, Token),
 	Grouping(Box<Expression>),
@@ -35,6 +41,7 @@ pub enum Expression {
 impl Expression {
 	pub fn location(&self) -> &Location {
 		match self {
+			Expression::Assignment { name: Token { location, .. }, .. } => location,
 			Expression::Binary { left, .. } => left.location(),
 			Expression::Grouping(expression) => expression.location(),
 			Expression::Literal(_, Token { location, .. }) => location,
@@ -45,8 +52,10 @@ impl Expression {
 }
 
 impl Display for Expression {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		match self {
+			Expression::Assignment { name, value } => write!(f, "(assign {name} = {value})"),
+
 			Expression::Binary { left, operator: Token { text, .. }, right } => {
 				write!(f, "({text} {left} {right})")
 			}
@@ -64,20 +73,22 @@ impl Display for Expression {
 
 #[derive(Debug, Clone)]
 pub enum Statement {
-	Expression { value: Expression },
-	Print { value: Expression },
-	VariableDeclaration { name: Token, value: Option<Expression> },
+	Expression { expression: Expression },
+	Print { expression: Expression },
+	VariableDeclaration { name: Token, initializer: Option<Expression> },
 }
 
 impl Display for Statement {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		match self {
-			Statement::Expression { value } => write!(f, "(expr {value})"),
-			Statement::Print { value } => write!(f, "(print {value})"),
-			Statement::VariableDeclaration { name: Token { text, .. }, value } => match value {
-				Some(value) => write!(f, "(vardecl {text} = {value})"),
-				None => write!(f, "(vardecl {text})"),
-			},
+			Statement::Expression { expression } => write!(f, "(expr {expression})"),
+			Statement::Print { expression } => write!(f, "(print {expression})"),
+			Statement::VariableDeclaration { name: Token { text, .. }, initializer } => {
+				match initializer {
+					Some(expression) => write!(f, "(vardecl {text} = {expression})"),
+					None => write!(f, "(vardecl {text})"),
+				}
+			}
 		}
 	}
 }
@@ -95,6 +106,10 @@ impl<'a> Parser<'a> {
 
 	pub fn synchronize(&mut self) {
 		use TokenKind::*;
+
+		if let Ok(Token { kind: EndOfFile, .. }) = self.peek() {
+			return;
+		}
 
 		self.advance();
 
@@ -130,11 +145,12 @@ impl<'a> Parser<'a> {
 
 		let name = self.expect(Identifier, "variable name")?;
 
-		let value = if self.advance_if(Equal) { Some(self.parse_expression()?) } else { None };
+		let initializer =
+			if self.advance_if(Equal) { Some(self.parse_expression()?) } else { None };
 
 		self.expect(Semicolon, "';' after variable declaration")?;
 
-		Ok(Statement::VariableDeclaration { name: name.clone(), value })
+		Ok(Statement::VariableDeclaration { name: name.clone(), initializer })
 	}
 
 	fn parse_statement(&mut self) -> Result<Statement> {
@@ -151,21 +167,42 @@ impl<'a> Parser<'a> {
 	fn parse_expression_statement(&mut self) -> Result<Statement> {
 		use TokenKind::*;
 
-		let value = self.parse_expression()?;
+		let expression = self.parse_expression()?;
 		self.expect(Semicolon, "';' after expression")?;
-		Ok(Statement::Expression { value })
+		Ok(Statement::Expression { expression })
 	}
 
 	fn parse_print_statement(&mut self) -> Result<Statement> {
 		use TokenKind::*;
 
-		let value = self.parse_expression()?;
-		self.expect(Semicolon, "';' after value")?;
-		Ok(Statement::Print { value })
+		let expression = self.parse_expression()?;
+		self.expect(Semicolon, "';' after expression")?;
+		Ok(Statement::Print { expression })
 	}
 
 	fn parse_expression(&mut self) -> Result<Expression> {
-		self.parse_equality()
+		self.parse_assignment()
+	}
+
+	fn parse_assignment(&mut self) -> Result<Expression> {
+		use TokenKind::*;
+
+		let expression = self.parse_equality()?;
+
+		if self.advance_if(Equal) {
+			let equals = self.previous();
+			let value = self.parse_assignment()?;
+
+			if let Expression::Variable(name) = expression {
+				Ok(Expression::Assignment { name, value: Box::new(value) })
+			}
+			else {
+				Err(ParseError::InvalidAssignment { location: equals.location })
+			}
+		}
+		else {
+			Ok(expression)
+		}
 	}
 
 	fn parse_equality(&mut self) -> Result<Expression> {
@@ -281,7 +318,7 @@ impl<'a> Parser<'a> {
 			Err(error) => (error.location.clone(), error.to_string()),
 		};
 
-		Err(ParseError { location, expected: "expression".to_string(), actual })
+		Err(ParseError::UnexpectedToken { location, expected: "expression".to_string(), actual })
 	}
 
 	fn peek(&mut self) -> &tokenize::Result {
@@ -304,7 +341,7 @@ impl<'a> Parser<'a> {
 				|token| (token.location.clone(), token.to_string()),
 			);
 
-			Err(ParseError { location, expected: expected.to_string(), actual })
+			Err(ParseError::UnexpectedToken { location, expected: expected.to_string(), actual })
 		}
 	}
 
@@ -336,9 +373,9 @@ impl<'a> Parser<'a> {
 	/// be called after at least one advance, and only if the previous Token was valid.
 	fn previous(&mut self) -> Token {
 		match self.previous {
-			Some(Ok(ref token)) => token.clone(),
-			Some(Err(_)) => panic!("Don't call `previous` on an error token!"),
 			None => panic!("Don't call `previous` before parsing something!"),
+			Some(Err(_)) => panic!("Don't call `previous` on an error token!"),
+			Some(Ok(ref token)) => token.clone(),
 		}
 	}
 }
