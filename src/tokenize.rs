@@ -4,47 +4,35 @@ use std::str::Chars;
 use crate::location::Location;
 use crate::value::Value;
 
-pub type Result = std::result::Result<Token, InvalidToken>;
+pub type Result = std::result::Result<Token, Error>;
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum ErrorKind {
-	UnknownChar,
-	UnterminatedString,
-}
-
-impl ErrorKind {
-	fn as_str(&self) -> &'static str {
-		use ErrorKind::*;
-		match self {
-			UnknownChar => "unknown character",
-			UnterminatedString => "unterminated string",
-		}
-	}
-}
-
-impl Display for ErrorKind {
-	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		f.write_str(self.as_str())
-	}
+#[derive(Clone)]
+pub struct Tokens<'a> {
+	source: Chars<'a>,
+	has_next: bool,
+	current: Option<char>,
+	next: Option<char>,
+	current_location: Location,
+	start_location: Location,
+	buffer: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct InvalidToken {
-	pub kind: ErrorKind,
-	pub text: String,
-	pub location: Location,
+pub struct Token {
+	data: Box<TokenData>,
 }
 
-impl InvalidToken {
-	pub fn new(kind: ErrorKind, text: impl Into<String>, location: Location) -> InvalidToken {
-		InvalidToken { kind, text: text.into(), location }
-	}
+#[derive(Debug, Clone, PartialEq)]
+pub struct Error {
+	data: Box<TokenData>,
 }
 
-impl Display for InvalidToken {
-	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		write!(f, "{} {}", self.kind, self.text)
-	}
+#[derive(Debug, Clone, PartialEq)]
+struct TokenData {
+	location: Location,
+	kind: std::result::Result<TokenKind, ErrorKind>,
+	text: String,
+	value: Option<Value>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -100,110 +88,15 @@ pub enum TokenKind {
 	EndOfFile,
 }
 
-impl TokenKind {
-	pub fn as_str(&self) -> &'static str {
-		use TokenKind::*;
-		match self {
-			LeftParen => "LEFT_PAREN",
-			RightParen => "RIGHT_PAREN",
-			LeftBrace => "LEFT_BRACE",
-			RightBrace => "RIGHT_BRACE",
-			Comma => "COMMA",
-			Dot => "DOT",
-			Minus => "MINUS",
-			Plus => "PLUS",
-			Semicolon => "SEMICOLON",
-			Slash => "SLASH",
-			Star => "STAR",
-
-			Bang => "BANG",
-			BangEqual => "BANG_EQUAL",
-			Equal => "EQUAL",
-			EqualEqual => "EQUAL_EQUAL",
-			Greater => "GREATER",
-			GreaterEqual => "GREATER_EQUAL",
-			Less => "LESS",
-			LessEqual => "LESS_EQUAL",
-
-			Identifier => "IDENTIFIER",
-			Number => "NUMBER",
-			String => "STRING",
-
-			And => "AND",
-			Class => "CLASS",
-			Else => "ELSE",
-			False => "FALSE",
-			Fun => "FUN",
-			For => "FOR",
-			If => "IF",
-			Nil => "NIL",
-			Or => "OR",
-			Print => "PRINT",
-			Return => "RETURN",
-			Super => "SUPER",
-			This => "THIS",
-			True => "TRUE",
-			Var => "VAR",
-			While => "WHILE",
-
-			Comment => "COMMENT",
-			EndOfFile => "EOF",
-		}
-	}
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ErrorKind {
+	UnknownChar,
+	UnterminatedString,
 }
 
-impl Display for TokenKind {
-	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		f.write_str(self.as_str())
-	}
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Token {
-	pub kind: TokenKind,
-	pub text: String,
-	pub value: Option<Value>,
-	pub location: Location,
-}
-
-impl Token {
-	pub fn with_text(kind: TokenKind, text: impl Into<String>, location: Location) -> Self {
-		Token { location, kind, text: text.into(), value: None }
-	}
-
-	pub fn with_value(
-		kind: TokenKind,
-		text: impl Into<String>,
-		value: Value,
-		location: Location,
-	) -> Self {
-		Token { location, kind, text: text.into(), value: Some(value) }
-	}
-}
-
-impl Display for Token {
-	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		match self {
-			Token { value: Some(value), .. } => {
-				write!(f, "{} {} {:?}", self.kind, self.text, value)
-			}
-			Token { value: None, .. } => {
-				write!(f, "{} {}", self.kind, self.text)
-			}
-		}
-	}
-}
-
-#[derive(Debug, Clone)]
-pub struct Tokens<'a> {
-	source: Chars<'a>,
-	has_next: bool,
-	current: Option<char>,
-	next: Option<char>,
-	current_location: Location,
-	start_location: Location,
-	buffer: String,
-}
+/////////////////////////////////////////////////////////////////////////////
+// Type implementations
+/////////////////////////////////////////////////////////////////////////////
 
 impl<'a> Tokens<'a> {
 	pub fn new(source: &'a str) -> Self {
@@ -219,7 +112,166 @@ impl<'a> Tokens<'a> {
 			current_location: Location::new(1, 1),
 		}
 	}
+}
 
+impl Token {
+	fn with_text(location: Location, kind: TokenKind, text: impl Into<String>) -> Self {
+		Token {
+			data: Box::new(TokenData { location, kind: Ok(kind), text: text.into(), value: None }),
+		}
+	}
+
+	fn with_value(
+		location: Location,
+		kind: TokenKind,
+		text: impl Into<String>,
+		value: Value,
+	) -> Self {
+		Token {
+			data: Box::new(TokenData {
+				location,
+				kind: Ok(kind),
+				text: text.into(),
+				value: Some(value),
+			}),
+		}
+	}
+
+	pub fn location(&self) -> &Location {
+		&self.data.location
+	}
+
+	pub fn kind(&self) -> TokenKind {
+		self.data.kind.ok().unwrap()
+	}
+
+	pub fn text(&self) -> &str {
+		&self.data.text
+	}
+
+	pub fn value(&self) -> Option<&Value> {
+		self.data.value.as_ref()
+	}
+}
+
+impl Error {
+	fn new(location: Location, kind: ErrorKind, text: impl Into<String>) -> Error {
+		Error {
+			data: Box::new(TokenData { location, kind: Err(kind), text: text.into(), value: None }),
+		}
+	}
+
+	pub fn location(&self) -> &Location {
+		&self.data.location
+	}
+
+	pub fn kind(&self) -> ErrorKind {
+		self.data.kind.err().unwrap()
+	}
+
+	pub fn text(&self) -> &str {
+		&self.data.text
+	}
+}
+
+impl TokenKind {
+	fn as_str(&self) -> &'static str {
+		match self {
+			TokenKind::LeftParen => "LEFT_PAREN",
+			TokenKind::RightParen => "RIGHT_PAREN",
+			TokenKind::LeftBrace => "LEFT_BRACE",
+			TokenKind::RightBrace => "RIGHT_BRACE",
+			TokenKind::Comma => "COMMA",
+			TokenKind::Dot => "DOT",
+			TokenKind::Minus => "MINUS",
+			TokenKind::Plus => "PLUS",
+			TokenKind::Semicolon => "SEMICOLON",
+			TokenKind::Slash => "SLASH",
+			TokenKind::Star => "STAR",
+
+			TokenKind::Bang => "BANG",
+			TokenKind::BangEqual => "BANG_EQUAL",
+			TokenKind::Equal => "EQUAL",
+			TokenKind::EqualEqual => "EQUAL_EQUAL",
+			TokenKind::Greater => "GREATER",
+			TokenKind::GreaterEqual => "GREATER_EQUAL",
+			TokenKind::Less => "LESS",
+			TokenKind::LessEqual => "LESS_EQUAL",
+
+			TokenKind::Identifier => "IDENTIFIER",
+			TokenKind::Number => "NUMBER",
+			TokenKind::String => "STRING",
+
+			TokenKind::And => "AND",
+			TokenKind::Class => "CLASS",
+			TokenKind::Else => "ELSE",
+			TokenKind::False => "FALSE",
+			TokenKind::Fun => "FUN",
+			TokenKind::For => "FOR",
+			TokenKind::If => "IF",
+			TokenKind::Nil => "NIL",
+			TokenKind::Or => "OR",
+			TokenKind::Print => "PRINT",
+			TokenKind::Return => "RETURN",
+			TokenKind::Super => "SUPER",
+			TokenKind::This => "THIS",
+			TokenKind::True => "TRUE",
+			TokenKind::Var => "VAR",
+			TokenKind::While => "WHILE",
+
+			TokenKind::Comment => "COMMENT",
+			TokenKind::EndOfFile => "EOF",
+		}
+	}
+}
+
+impl ErrorKind {
+	fn as_str(&self) -> &'static str {
+		match self {
+			ErrorKind::UnknownChar => "unknown character",
+			ErrorKind::UnterminatedString => "unterminated string",
+		}
+	}
+}
+
+/////////////////////////////////////////////////////////////////////////////
+// Display
+/////////////////////////////////////////////////////////////////////////////
+
+impl Display for Token {
+	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+		match self.value() {
+			Some(value) => {
+				write!(f, "{kind} '{text}' {value:?}", kind = self.kind(), text = self.text())
+			}
+			None => write!(f, "{kind} '{text}'", kind = self.kind(), text = self.text()),
+		}
+	}
+}
+
+impl Display for Error {
+	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+		write!(f, "{} '{}'", self.kind(), self.text())
+	}
+}
+
+impl Display for TokenKind {
+	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+		f.write_str(self.as_str())
+	}
+}
+
+impl Display for ErrorKind {
+	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+		f.write_str(self.as_str())
+	}
+}
+
+/////////////////////////////////////////////////////////////////////////////
+// Tokens implementation
+/////////////////////////////////////////////////////////////////////////////
+
+impl<'a> Tokens<'a> {
 	fn peek(&mut self) -> Option<&char> {
 		self.current.as_ref()
 	}
@@ -276,9 +328,8 @@ impl<'a> Tokens<'a> {
 		self.start_location = self.current_location.clone();
 	}
 
-	fn get_error(&mut self, error_type: ErrorKind) -> InvalidToken {
-		let result =
-			InvalidToken::new(error_type, self.buffer.as_str(), self.start_location.clone());
+	fn get_error(&mut self, error_type: ErrorKind) -> Error {
+		let result = Error::new(self.start_location.clone(), error_type, self.buffer.as_str());
 
 		self.reset_buffer();
 
@@ -287,7 +338,7 @@ impl<'a> Tokens<'a> {
 
 	fn get_token(&mut self, token_type: TokenKind) -> Token {
 		let result =
-			Token::with_text(token_type, self.buffer.as_str(), self.start_location.clone());
+			Token::with_text(self.start_location.clone(), token_type, self.buffer.as_str());
 
 		self.reset_buffer();
 
@@ -296,7 +347,7 @@ impl<'a> Tokens<'a> {
 
 	fn get_value_token(&mut self, token_type: TokenKind, value: Value) -> Token {
 		let result =
-			Token::with_value(token_type, self.buffer.as_str(), value, self.start_location.clone());
+			Token::with_value(self.start_location.clone(), token_type, self.buffer.as_str(), value);
 
 		self.reset_buffer();
 
@@ -344,26 +395,24 @@ impl<'a> Tokens<'a> {
 			self.advance(false);
 		}
 
-		use TokenKind::*;
-
 		match self.buffer.as_str() {
-			"and" => self.get_token(And),
-			"class" => self.get_token(Class),
-			"else" => self.get_token(Else),
-			"false" => self.get_token(False),
-			"for" => self.get_token(For),
-			"fun" => self.get_token(Fun),
-			"if" => self.get_token(If),
-			"nil" => self.get_token(Nil),
-			"or" => self.get_token(Or),
-			"print" => self.get_token(Print),
-			"return" => self.get_token(Return),
-			"super" => self.get_token(Super),
-			"this" => self.get_token(This),
-			"true" => self.get_token(True),
-			"var" => self.get_token(Var),
-			"while" => self.get_token(While),
-			_ => self.get_token(Identifier),
+			"and" => self.get_token(TokenKind::And),
+			"class" => self.get_token(TokenKind::Class),
+			"else" => self.get_token(TokenKind::Else),
+			"false" => self.get_token(TokenKind::False),
+			"for" => self.get_token(TokenKind::For),
+			"fun" => self.get_token(TokenKind::Fun),
+			"if" => self.get_token(TokenKind::If),
+			"nil" => self.get_token(TokenKind::Nil),
+			"or" => self.get_token(TokenKind::Or),
+			"print" => self.get_token(TokenKind::Print),
+			"return" => self.get_token(TokenKind::Return),
+			"super" => self.get_token(TokenKind::Super),
+			"this" => self.get_token(TokenKind::This),
+			"true" => self.get_token(TokenKind::True),
+			"var" => self.get_token(TokenKind::Var),
+			"while" => self.get_token(TokenKind::While),
+			_ => self.get_token(TokenKind::Identifier),
 		}
 	}
 }
@@ -378,42 +427,44 @@ impl Iterator for Tokens<'_> {
 
 		let next = self.advance(false);
 
-		use TokenKind::*;
-
 		if next.is_none() {
 			self.has_next = false;
-			return Some(Ok(self.get_token(EndOfFile)));
+			return Some(Ok(self.get_token(TokenKind::EndOfFile)));
 		}
 
 		match next.unwrap() {
-			'(' => Some(Ok(self.get_token(LeftParen))),
-			')' => Some(Ok(self.get_token(RightParen))),
-			'{' => Some(Ok(self.get_token(LeftBrace))),
-			'}' => Some(Ok(self.get_token(RightBrace))),
-			',' => Some(Ok(self.get_token(Comma))),
-			'.' => Some(Ok(self.get_token(Dot))),
-			'-' => Some(Ok(self.get_token(Minus))),
-			'+' => Some(Ok(self.get_token(Plus))),
-			';' => Some(Ok(self.get_token(Semicolon))),
-			'*' => Some(Ok(self.get_token(Star))),
+			'(' => Some(Ok(self.get_token(TokenKind::LeftParen))),
+			')' => Some(Ok(self.get_token(TokenKind::RightParen))),
+			'{' => Some(Ok(self.get_token(TokenKind::LeftBrace))),
+			'}' => Some(Ok(self.get_token(TokenKind::RightBrace))),
+			',' => Some(Ok(self.get_token(TokenKind::Comma))),
+			'.' => Some(Ok(self.get_token(TokenKind::Dot))),
+			'-' => Some(Ok(self.get_token(TokenKind::Minus))),
+			'+' => Some(Ok(self.get_token(TokenKind::Plus))),
+			';' => Some(Ok(self.get_token(TokenKind::Semicolon))),
+			'*' => Some(Ok(self.get_token(TokenKind::Star))),
 
 			'!' => {
-				let token_type = if self.advance_if('=') { BangEqual } else { Bang };
+				let token_type =
+					if self.advance_if('=') { TokenKind::BangEqual } else { TokenKind::Bang };
 				Some(Ok(self.get_token(token_type)))
 			}
 
 			'=' => {
-				let token_type = if self.advance_if('=') { EqualEqual } else { Equal };
+				let token_type =
+					if self.advance_if('=') { TokenKind::EqualEqual } else { TokenKind::Equal };
 				Some(Ok(self.get_token(token_type)))
 			}
 
 			'>' => {
-				let token_type = if self.advance_if('=') { GreaterEqual } else { Greater };
+				let token_type =
+					if self.advance_if('=') { TokenKind::GreaterEqual } else { TokenKind::Greater };
 				Some(Ok(self.get_token(token_type)))
 			}
 
 			'<' => {
-				let token_type = if self.advance_if('=') { LessEqual } else { Less };
+				let token_type =
+					if self.advance_if('=') { TokenKind::LessEqual } else { TokenKind::Less };
 				Some(Ok(self.get_token(token_type)))
 			}
 
@@ -422,10 +473,10 @@ impl Iterator for Tokens<'_> {
 					while self.peek() != Some(&'\n') && self.peek() != None {
 						self.advance(true);
 					}
-					Some(Ok(self.get_token(Comment)))
+					Some(Ok(self.get_token(TokenKind::Comment)))
 				}
 				else {
-					Some(Ok(self.get_token(Slash)))
+					Some(Ok(self.get_token(TokenKind::Slash)))
 				}
 			}
 
@@ -446,15 +497,12 @@ impl Iterator for Tokens<'_> {
 mod tests {
 	use std::string::String;
 
-	use ErrorKind::*;
-	use TokenKind::*;
-
 	use super::*;
 
 	#[test]
 	pub fn empty_source() {
 		let input = "";
-		let expected = vec![Ok(Token::with_text(EndOfFile, "", Location::new(1, 1)))];
+		let expected = vec![Ok(Token::with_text(Location::new(1, 1), TokenKind::EndOfFile, ""))];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
 
@@ -465,10 +513,10 @@ mod tests {
 	pub fn parentheses() {
 		let input = "(()";
 		let expected = vec![
-			Ok(Token::with_text(LeftParen, "(", Location::new(1, 1))),
-			Ok(Token::with_text(LeftParen, "(", Location::new(1, 2))),
-			Ok(Token::with_text(RightParen, ")", Location::new(1, 3))),
-			Ok(Token::with_text(EndOfFile, "", Location::new(1, 4))),
+			Ok(Token::with_text(Location::new(1, 1), TokenKind::LeftParen, "(")),
+			Ok(Token::with_text(Location::new(1, 2), TokenKind::LeftParen, "(")),
+			Ok(Token::with_text(Location::new(1, 3), TokenKind::RightParen, ")")),
+			Ok(Token::with_text(Location::new(1, 4), TokenKind::EndOfFile, "")),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -480,9 +528,9 @@ mod tests {
 	pub fn whitespace() {
 		let input = "\t(  \t(";
 		let expected = vec![
-			Ok(Token::with_text(LeftParen, "(", Location::new(1, 5))),
-			Ok(Token::with_text(LeftParen, "(", Location::new(1, 9))),
-			Ok(Token::with_text(EndOfFile, "", Location::new(1, 10))),
+			Ok(Token::with_text(Location::new(1, 5), TokenKind::LeftParen, "(")),
+			Ok(Token::with_text(Location::new(1, 9), TokenKind::LeftParen, "(")),
+			Ok(Token::with_text(Location::new(1, 10), TokenKind::EndOfFile, "")),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -494,8 +542,8 @@ mod tests {
 	pub fn newlines() {
 		let input = "\r\n\r\n  (\n";
 		let expected = vec![
-			Ok(Token::with_text(LeftParen, "(", Location::new(3, 3))),
-			Ok(Token::with_text(EndOfFile, "", Location::new(4, 1))),
+			Ok(Token::with_text(Location::new(3, 3), TokenKind::LeftParen, "(")),
+			Ok(Token::with_text(Location::new(4, 1), TokenKind::EndOfFile, "")),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -507,11 +555,11 @@ mod tests {
 	pub fn braces() {
 		let input = "{{}}";
 		let expected = vec![
-			Ok(Token::with_text(LeftBrace, "{", Location::new(1, 1))),
-			Ok(Token::with_text(LeftBrace, "{", Location::new(1, 2))),
-			Ok(Token::with_text(RightBrace, "}", Location::new(1, 3))),
-			Ok(Token::with_text(RightBrace, "}", Location::new(1, 4))),
-			Ok(Token::with_text(EndOfFile, "", Location::new(1, 5))),
+			Ok(Token::with_text(Location::new(1, 1), TokenKind::LeftBrace, "{")),
+			Ok(Token::with_text(Location::new(1, 2), TokenKind::LeftBrace, "{")),
+			Ok(Token::with_text(Location::new(1, 3), TokenKind::RightBrace, "}")),
+			Ok(Token::with_text(Location::new(1, 4), TokenKind::RightBrace, "}")),
+			Ok(Token::with_text(Location::new(1, 5), TokenKind::EndOfFile, "")),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -523,17 +571,17 @@ mod tests {
 	pub fn other_single_character_tokens() {
 		let input = "({+.*,- ;})";
 		let expected = vec![
-			Ok(Token::with_text(LeftParen, "(", Location::new(1, 1))),
-			Ok(Token::with_text(LeftBrace, "{", Location::new(1, 2))),
-			Ok(Token::with_text(Plus, "+", Location::new(1, 3))),
-			Ok(Token::with_text(Dot, ".", Location::new(1, 4))),
-			Ok(Token::with_text(Star, "*", Location::new(1, 5))),
-			Ok(Token::with_text(Comma, ",", Location::new(1, 6))),
-			Ok(Token::with_text(Minus, "-", Location::new(1, 7))),
-			Ok(Token::with_text(Semicolon, ";", Location::new(1, 9))),
-			Ok(Token::with_text(RightBrace, "}", Location::new(1, 10))),
-			Ok(Token::with_text(RightParen, ")", Location::new(1, 11))),
-			Ok(Token::with_text(EndOfFile, "", Location::new(1, 12))),
+			Ok(Token::with_text(Location::new(1, 1), TokenKind::LeftParen, "(")),
+			Ok(Token::with_text(Location::new(1, 2), TokenKind::LeftBrace, "{")),
+			Ok(Token::with_text(Location::new(1, 3), TokenKind::Plus, "+")),
+			Ok(Token::with_text(Location::new(1, 4), TokenKind::Dot, ".")),
+			Ok(Token::with_text(Location::new(1, 5), TokenKind::Star, "*")),
+			Ok(Token::with_text(Location::new(1, 6), TokenKind::Comma, ",")),
+			Ok(Token::with_text(Location::new(1, 7), TokenKind::Minus, "-")),
+			Ok(Token::with_text(Location::new(1, 9), TokenKind::Semicolon, ";")),
+			Ok(Token::with_text(Location::new(1, 10), TokenKind::RightBrace, "}")),
+			Ok(Token::with_text(Location::new(1, 11), TokenKind::RightParen, ")")),
+			Ok(Token::with_text(Location::new(1, 12), TokenKind::EndOfFile, "")),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -545,12 +593,12 @@ mod tests {
 	pub fn unknown_character() {
 		let input = ".,$(#";
 		let expected = vec![
-			Ok(Token::with_text(Dot, ".", Location::new(1, 1))),
-			Ok(Token::with_text(Comma, ",", Location::new(1, 2))),
-			Err(InvalidToken::new(UnknownChar, "$", Location::new(1, 3))),
-			Ok(Token::with_text(LeftParen, "(", Location::new(1, 4))),
-			Err(InvalidToken::new(UnknownChar, "#", Location::new(1, 5))),
-			Ok(Token::with_text(EndOfFile, "", Location::new(1, 6))),
+			Ok(Token::with_text(Location::new(1, 1), TokenKind::Dot, ".")),
+			Ok(Token::with_text(Location::new(1, 2), TokenKind::Comma, ",")),
+			Err(Error::new(Location::new(1, 3), ErrorKind::UnknownChar, "$")),
+			Ok(Token::with_text(Location::new(1, 4), TokenKind::LeftParen, "(")),
+			Err(Error::new(Location::new(1, 5), ErrorKind::UnknownChar, "#")),
+			Ok(Token::with_text(Location::new(1, 6), TokenKind::EndOfFile, "")),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -562,15 +610,15 @@ mod tests {
 	pub fn operators() {
 		let input = "! != = == > >= < <=";
 		let expected = vec![
-			Ok(Token::with_text(Bang, "!", Location::new(1, 1))),
-			Ok(Token::with_text(BangEqual, "!=", Location::new(1, 3))),
-			Ok(Token::with_text(Equal, "=", Location::new(1, 6))),
-			Ok(Token::with_text(EqualEqual, "==", Location::new(1, 8))),
-			Ok(Token::with_text(Greater, ">", Location::new(1, 11))),
-			Ok(Token::with_text(GreaterEqual, ">=", Location::new(1, 13))),
-			Ok(Token::with_text(Less, "<", Location::new(1, 16))),
-			Ok(Token::with_text(LessEqual, "<=", Location::new(1, 18))),
-			Ok(Token::with_text(EndOfFile, "", Location::new(1, 20))),
+			Ok(Token::with_text(Location::new(1, 1), TokenKind::Bang, "!")),
+			Ok(Token::with_text(Location::new(1, 3), TokenKind::BangEqual, "!=")),
+			Ok(Token::with_text(Location::new(1, 6), TokenKind::Equal, "=")),
+			Ok(Token::with_text(Location::new(1, 8), TokenKind::EqualEqual, "==")),
+			Ok(Token::with_text(Location::new(1, 11), TokenKind::Greater, ">")),
+			Ok(Token::with_text(Location::new(1, 13), TokenKind::GreaterEqual, ">=")),
+			Ok(Token::with_text(Location::new(1, 16), TokenKind::Less, "<")),
+			Ok(Token::with_text(Location::new(1, 18), TokenKind::LessEqual, "<=")),
+			Ok(Token::with_text(Location::new(1, 20), TokenKind::EndOfFile, "")),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -582,9 +630,13 @@ mod tests {
 	pub fn comments() {
 		let input = "// comment\n/";
 		let expected = vec![
-			Ok(Token::with_text(Comment, String::from("// comment"), Location::new(1, 1))),
-			Ok(Token::with_text(Slash, "/", Location::new(2, 1))),
-			Ok(Token::with_text(EndOfFile, "", Location::new(2, 2))),
+			Ok(Token::with_text(
+				Location::new(1, 1),
+				TokenKind::Comment,
+				String::from("// comment"),
+			)),
+			Ok(Token::with_text(Location::new(2, 1), TokenKind::Slash, "/")),
+			Ok(Token::with_text(Location::new(2, 2), TokenKind::EndOfFile, "")),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -597,13 +649,13 @@ mod tests {
 		let input = "\"test\"\"test";
 		let expected = vec![
 			Ok(Token::with_value(
+				Location::new(1, 1),
 				TokenKind::String,
 				"\"test\"",
 				Value::String("test".into()),
-				Location::new(1, 1),
 			)),
-			Err(InvalidToken::new(UnterminatedString, "\"test", Location::new(1, 7))),
-			Ok(Token::with_text(EndOfFile, "", Location::new(1, 12))),
+			Err(Error::new(Location::new(1, 7), ErrorKind::UnterminatedString, "\"test")),
+			Ok(Token::with_text(Location::new(1, 12), TokenKind::EndOfFile, "")),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -615,12 +667,17 @@ mod tests {
 	pub fn numbers() {
 		let input = "420.69\n.5\n5.";
 		let expected = vec![
-			Ok(Token::with_value(Number, "420.69", Value::Number(420.69), Location::new(1, 1))),
-			Ok(Token::with_text(Dot, ".", Location::new(2, 1))),
-			Ok(Token::with_value(Number, "5", Value::Number(5.), Location::new(2, 2))),
-			Ok(Token::with_value(Number, "5", Value::Number(5.), Location::new(3, 1))),
-			Ok(Token::with_text(Dot, ".", Location::new(3, 2))),
-			Ok(Token::with_text(EndOfFile, "", Location::new(3, 3))),
+			Ok(Token::with_value(
+				Location::new(1, 1),
+				TokenKind::Number,
+				"420.69",
+				Value::Number(420.69),
+			)),
+			Ok(Token::with_text(Location::new(2, 1), TokenKind::Dot, ".")),
+			Ok(Token::with_value(Location::new(2, 2), TokenKind::Number, "5", Value::Number(5.))),
+			Ok(Token::with_value(Location::new(3, 1), TokenKind::Number, "5", Value::Number(5.))),
+			Ok(Token::with_text(Location::new(3, 2), TokenKind::Dot, ".")),
+			Ok(Token::with_text(Location::new(3, 3), TokenKind::EndOfFile, "")),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -632,8 +689,12 @@ mod tests {
 	pub fn identifiers() {
 		let input = "orchid";
 		let expected = vec![
-			Ok(Token::with_text(Identifier, String::from("orchid"), Location::new(1, 1))),
-			Ok(Token::with_text(EndOfFile, "", Location::new(1, 7))),
+			Ok(Token::with_text(
+				Location::new(1, 1),
+				TokenKind::Identifier,
+				String::from("orchid"),
+			)),
+			Ok(Token::with_text(Location::new(1, 7), TokenKind::EndOfFile, "")),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();
@@ -645,23 +706,23 @@ mod tests {
 	pub fn keywords() {
 		let input = "and class else false for fun if nil or print return super this true var while";
 		let expected = vec![
-			Ok(Token::with_text(And, "and", Location::new(1, 1))),
-			Ok(Token::with_text(Class, "class", Location::new(1, 5))),
-			Ok(Token::with_text(Else, "else", Location::new(1, 11))),
-			Ok(Token::with_text(False, "false", Location::new(1, 16))),
-			Ok(Token::with_text(For, "for", Location::new(1, 22))),
-			Ok(Token::with_text(Fun, "fun", Location::new(1, 26))),
-			Ok(Token::with_text(If, "if", Location::new(1, 30))),
-			Ok(Token::with_text(Nil, "nil", Location::new(1, 33))),
-			Ok(Token::with_text(Or, "or", Location::new(1, 37))),
-			Ok(Token::with_text(Print, "print", Location::new(1, 40))),
-			Ok(Token::with_text(Return, "return", Location::new(1, 46))),
-			Ok(Token::with_text(Super, "super", Location::new(1, 53))),
-			Ok(Token::with_text(This, "this", Location::new(1, 59))),
-			Ok(Token::with_text(True, "true", Location::new(1, 64))),
-			Ok(Token::with_text(Var, "var", Location::new(1, 69))),
-			Ok(Token::with_text(While, "while", Location::new(1, 73))),
-			Ok(Token::with_text(EndOfFile, "", Location::new(1, 78))),
+			Ok(Token::with_text(Location::new(1, 1), TokenKind::And, "and")),
+			Ok(Token::with_text(Location::new(1, 5), TokenKind::Class, "class")),
+			Ok(Token::with_text(Location::new(1, 11), TokenKind::Else, "else")),
+			Ok(Token::with_text(Location::new(1, 16), TokenKind::False, "false")),
+			Ok(Token::with_text(Location::new(1, 22), TokenKind::For, "for")),
+			Ok(Token::with_text(Location::new(1, 26), TokenKind::Fun, "fun")),
+			Ok(Token::with_text(Location::new(1, 30), TokenKind::If, "if")),
+			Ok(Token::with_text(Location::new(1, 33), TokenKind::Nil, "nil")),
+			Ok(Token::with_text(Location::new(1, 37), TokenKind::Or, "or")),
+			Ok(Token::with_text(Location::new(1, 40), TokenKind::Print, "print")),
+			Ok(Token::with_text(Location::new(1, 46), TokenKind::Return, "return")),
+			Ok(Token::with_text(Location::new(1, 53), TokenKind::Super, "super")),
+			Ok(Token::with_text(Location::new(1, 59), TokenKind::This, "this")),
+			Ok(Token::with_text(Location::new(1, 64), TokenKind::True, "true")),
+			Ok(Token::with_text(Location::new(1, 69), TokenKind::Var, "var")),
+			Ok(Token::with_text(Location::new(1, 73), TokenKind::While, "while")),
+			Ok(Token::with_text(Location::new(1, 78), TokenKind::EndOfFile, "")),
 		];
 
 		let actual = Tokens::new(input).collect::<Vec<_>>();

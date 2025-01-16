@@ -67,8 +67,8 @@ fn run(source: &str, environment: &mut Environment) -> Result<(), Error> {
 	println!("Tokenize:");
 	for token in tokens.clone() {
 		match token {
-			Ok(token) => println!("{token}"),
-			Err(error) => println!("{error}"),
+			Ok(token) => println!("{location} {token}", location = token.location()),
+			Err(error) => println!("{location} {error}", location = error.location()),
 		}
 	}
 	println!();
@@ -90,7 +90,7 @@ fn run(source: &str, environment: &mut Environment) -> Result<(), Error> {
 	println!("Interpret:");
 	for statement in parser {
 		let result = statement.map_or_else(
-			|error| Err(Error::from(error)),
+			|error| Err(Error::Parse(error)),
 			|statement| Ok(environment.execute(&statement)?),
 		);
 

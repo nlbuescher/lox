@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::location::Location;
 use crate::parse::{Expression, Statement};
-use crate::tokenize::Token;
+use crate::tokenize::TokenKind;
 use crate::value::Value;
 
 #[derive(Debug)]
@@ -14,13 +14,11 @@ pub enum RuntimeError {
 
 impl Display for RuntimeError {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		use RuntimeError::*;
-
 		match self {
-			WrongType { location, expected, actual } => {
+			RuntimeError::WrongType { location, expected, actual } => {
 				write!(f, "{location} Expected {expected} but got {actual}")
 			}
-			VariableNotDefined { location, name } => {
+			RuntimeError::VariableNotDefined { location, name } => {
 				write!(f, "{location} {name} is not defined")
 			}
 		}
@@ -104,7 +102,7 @@ impl Environment {
 					None => Value::Nil,
 				};
 
-				self.values.insert(name.text.clone(), value);
+				self.values.insert(name.text().to_string(), value);
 
 				Ok(None)
 			}
@@ -112,12 +110,13 @@ impl Environment {
 	}
 
 	fn evaluate_expression(&mut self, expression: &Expression) -> Result<Value, RuntimeError> {
-		use crate::tokenize::TokenKind::*;
 		match expression {
-			Expression::Assignment { name: Token { location, text, .. }, value } => {
-				if !self.values.contains_key(text) {
+			Expression::Assignment { name, value } => {
+				let text = name.text().to_string();
+
+				if !self.values.contains_key(&text) {
 					return Err(RuntimeError::VariableNotDefined {
-						location: location.clone(),
+						location: name.location().clone(),
 						name: text.clone(),
 					});
 				}
@@ -131,47 +130,47 @@ impl Environment {
 				let left_value = self.evaluate_expression(left)?;
 				let right_value = self.evaluate_expression(right)?;
 
-				match operator.kind {
-					Greater => {
+				match operator.kind() {
+					TokenKind::Greater => {
 						let left_number = left_value.as_number(left)?;
 						let right_number = right_value.as_number(right)?;
 
 						Ok(Value::Bool(left_number > right_number))
 					}
 
-					GreaterEqual => {
+					TokenKind::GreaterEqual => {
 						let left_number = left_value.as_number(left)?;
 						let right_number = right_value.as_number(right)?;
 
 						Ok(Value::Bool(left_number >= right_number))
 					}
 
-					Less => {
+					TokenKind::Less => {
 						let left_number = left_value.as_number(left)?;
 						let right_number = right_value.as_number(right)?;
 
 						Ok(Value::Bool(left_number < right_number))
 					}
 
-					LessEqual => {
+					TokenKind::LessEqual => {
 						let left_number = left_value.as_number(left)?;
 						let right_number = right_value.as_number(right)?;
 
 						Ok(Value::Bool(left_number <= right_number))
 					}
 
-					BangEqual => Ok(Value::Bool(left_value != right_value)),
+					TokenKind::BangEqual => Ok(Value::Bool(left_value != right_value)),
 
-					EqualEqual => Ok(Value::Bool(left_value == right_value)),
+					TokenKind::EqualEqual => Ok(Value::Bool(left_value == right_value)),
 
-					Minus => {
+					TokenKind::Minus => {
 						let left_number = left_value.as_number(left)?;
 						let right_number = right_value.as_number(right)?;
 
 						Ok(Value::Number(left_number - right_number))
 					}
 
-					Plus => match left_value.as_number(left) {
+					TokenKind::Plus => match left_value.as_number(left) {
 						Ok(left_number) => {
 							let right_number = right_value.as_number(right)?;
 
@@ -185,14 +184,14 @@ impl Environment {
 						}
 					},
 
-					Slash => {
+					TokenKind::Slash => {
 						let left_number = left_value.as_number(left)?;
 						let right_number = right_value.as_number(right)?;
 
 						Ok(Value::Number(left_number / right_number))
 					}
 
-					Star => {
+					TokenKind::Star => {
 						let left_number = left_value.as_number(left)?;
 						let right_number = right_value.as_number(right)?;
 
@@ -210,10 +209,10 @@ impl Environment {
 			Expression::Unary { operator, right } => {
 				let right_value = self.evaluate_expression(right)?;
 
-				match operator.kind {
-					Bang => Ok(Value::Bool(!right_value.is_truthy())),
+				match operator.kind() {
+					TokenKind::Bang => Ok(Value::Bool(!right_value.is_truthy())),
 
-					Minus => {
+					TokenKind::Minus => {
 						let right_number = right_value.as_number(right)?;
 
 						Ok(Value::Number(-right_number))
@@ -223,13 +222,17 @@ impl Environment {
 				}
 			}
 
-			Expression::Variable(Token { location, text, .. }) => match self.values.get(text) {
-				None => Err(RuntimeError::VariableNotDefined {
-					location: location.clone(),
-					name: text.clone(),
-				}),
-				Some(value) => Ok(value.clone()),
-			},
+			Expression::Variable(token) => {
+				let text = token.text().to_string();
+
+				match self.values.get(&text) {
+					None => Err(RuntimeError::VariableNotDefined {
+						location: token.location().clone(),
+						name: text.clone(),
+					}),
+					Some(value) => Ok(value.clone()),
+				}
+			}
 		}
 	}
 }

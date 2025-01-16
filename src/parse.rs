@@ -4,7 +4,7 @@ use std::string::String;
 
 use crate::location::Location;
 use crate::tokenize;
-use crate::tokenize::{Token, TokenKind, Tokens};
+use crate::tokenize::{Error, Token, TokenKind, Tokens};
 use crate::value::Value;
 
 pub type Result<T> = std::result::Result<T, ParseError>;
@@ -17,13 +17,13 @@ pub enum ParseError {
 
 impl Display for ParseError {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		use ParseError::*;
-
 		match self {
-			UnexpectedToken { location, expected, actual } => {
+			ParseError::UnexpectedToken { location, expected, actual } => {
 				write!(f, "{location} Expected {expected} but got {actual}")
 			}
-			InvalidAssignment { location } => write!(f, "{location} Invalid assignment target"),
+			ParseError::InvalidAssignment { location } => {
+				write!(f, "{location} Invalid assignment target")
+			}
 		}
 	}
 }
@@ -41,12 +41,12 @@ pub enum Expression {
 impl Expression {
 	pub fn location(&self) -> &Location {
 		match self {
-			Expression::Assignment { name: Token { location, .. }, .. } => location,
+			Expression::Assignment { name, .. } => name.location(),
 			Expression::Binary { left, .. } => left.location(),
 			Expression::Grouping(expression) => expression.location(),
-			Expression::Literal(_, Token { location, .. }) => location,
-			Expression::Unary { operator: Token { location, .. }, .. } => location,
-			Expression::Variable(Token { location, .. }) => location,
+			Expression::Literal(_, token) => token.location(),
+			Expression::Unary { operator, .. } => operator.location(),
+			Expression::Variable(token) => token.location(),
 		}
 	}
 }
@@ -56,17 +56,17 @@ impl Display for Expression {
 		match self {
 			Expression::Assignment { name, value } => write!(f, "(assign {name} = {value})"),
 
-			Expression::Binary { left, operator: Token { text, .. }, right } => {
-				write!(f, "({text} {left} {right})")
+			Expression::Binary { left, operator, right } => {
+				write!(f, "({text} {left} {right})", text = operator.text())
 			}
 
-			Expression::Literal(_, Token { text, .. }) => write!(f, "{text}"),
+			Expression::Literal(_, token) => write!(f, "{text}", text = token.text()),
 
 			Expression::Grouping(expression) => write!(f, "(group {expression})"),
 
 			Expression::Unary { operator, right } => write!(f, "({operator} {right})"),
 
-			Expression::Variable(Token { text, .. }) => write!(f, "(var {text})"),
+			Expression::Variable(token) => write!(f, "(var {text})", text = token.text()),
 		}
 	}
 }
@@ -83,17 +83,17 @@ impl Display for Statement {
 		match self {
 			Statement::Expression { expression } => write!(f, "(expr {expression})"),
 			Statement::Print { expression } => write!(f, "(print {expression})"),
-			Statement::VariableDeclaration { name: Token { text, .. }, initializer } => {
-				match initializer {
-					Some(expression) => write!(f, "(vardecl {text} = {expression})"),
-					None => write!(f, "(vardecl {text})"),
+			Statement::VariableDeclaration { name, initializer } => match initializer {
+				Some(expression) => {
+					write!(f, "(vardecl {text} = {expression})", text = name.text())
 				}
-			}
+				None => write!(f, "(vardecl {text})", text = name.text()),
+			},
 		}
 	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Parser<'a> {
 	tokens: Peekable<Tokens<'a>>,
 	previous: Option<tokenize::Result>,
@@ -105,24 +105,28 @@ impl<'a> Parser<'a> {
 	}
 
 	pub fn synchronize(&mut self) {
-		use TokenKind::*;
-
-		if let Ok(Token { kind: EndOfFile, .. }) = self.peek() {
+		if matches!(self.peek(), Ok(token) if token.kind() == TokenKind::EndOfFile) {
 			return;
 		}
 
 		self.advance();
 
 		loop {
-			if self.previous().kind == Semicolon {
-				return;
+			if self.previous().kind() == TokenKind::Semicolon {
+				break;
 			}
 
-			if let Ok(Token {
-				kind: Class | Fun | Var | For | If | While | Print | Return, ..
-			}) = self.peek()
-			{
-				return;
+			if self.peek().is_ok_and(|it| {
+				matches!(
+					it.kind(),
+					TokenKind::Class
+						| TokenKind::Fun | TokenKind::Var
+						| TokenKind::For | TokenKind::If
+						| TokenKind::While | TokenKind::Print
+						| TokenKind::Return
+				)
+			}) {
+				break;
 			}
 
 			self.advance();
@@ -130,9 +134,7 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_declaration(&mut self) -> Result<Statement> {
-		use TokenKind::*;
-
-		if self.advance_if(Var) {
+		if self.advance_if(TokenKind::Var) {
 			self.parse_variable_declaration()
 		}
 		else {
@@ -141,22 +143,18 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_variable_declaration(&mut self) -> Result<Statement> {
-		use TokenKind::*;
-
-		let name = self.expect(Identifier, "variable name")?;
+		let name = self.expect(TokenKind::Identifier, "variable name")?;
 
 		let initializer =
-			if self.advance_if(Equal) { Some(self.parse_expression()?) } else { None };
+			if self.advance_if(TokenKind::Equal) { Some(self.parse_expression()?) } else { None };
 
-		self.expect(Semicolon, "';' after variable declaration")?;
+		self.expect(TokenKind::Semicolon, "';' after variable declaration")?;
 
 		Ok(Statement::VariableDeclaration { name: name.clone(), initializer })
 	}
 
 	fn parse_statement(&mut self) -> Result<Statement> {
-		use TokenKind::*;
-
-		if self.advance_if(Print) {
+		if self.advance_if(TokenKind::Print) {
 			self.parse_print_statement()
 		}
 		else {
@@ -165,18 +163,14 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_expression_statement(&mut self) -> Result<Statement> {
-		use TokenKind::*;
-
 		let expression = self.parse_expression()?;
-		self.expect(Semicolon, "';' after expression")?;
+		self.expect(TokenKind::Semicolon, "';' after expression")?;
 		Ok(Statement::Expression { expression })
 	}
 
 	fn parse_print_statement(&mut self) -> Result<Statement> {
-		use TokenKind::*;
-
 		let expression = self.parse_expression()?;
-		self.expect(Semicolon, "';' after expression")?;
+		self.expect(TokenKind::Semicolon, "';' after expression")?;
 		Ok(Statement::Print { expression })
 	}
 
@@ -185,11 +179,9 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_assignment(&mut self) -> Result<Expression> {
-		use TokenKind::*;
-
 		let expression = self.parse_equality()?;
 
-		if self.advance_if(Equal) {
+		if self.advance_if(TokenKind::Equal) {
 			let equals = self.previous();
 			let value = self.parse_assignment()?;
 
@@ -197,7 +189,7 @@ impl<'a> Parser<'a> {
 				Ok(Expression::Assignment { name, value: Box::new(value) })
 			}
 			else {
-				Err(ParseError::InvalidAssignment { location: equals.location })
+				Err(ParseError::InvalidAssignment { location: equals.location().clone() })
 			}
 		}
 		else {
@@ -206,11 +198,9 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_equality(&mut self) -> Result<Expression> {
-		use TokenKind::*;
-
 		let mut expression = self.parse_comparison()?;
 
-		while self.advance_if_any(&[BangEqual, EqualEqual]) {
+		while self.advance_if_any(&[TokenKind::BangEqual, TokenKind::EqualEqual]) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
 				operator: self.previous(),
@@ -222,11 +212,14 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_comparison(&mut self) -> Result<Expression> {
-		use TokenKind::*;
-
 		let mut expression = self.parse_term()?;
 
-		while self.advance_if_any(&[Greater, GreaterEqual, Less, LessEqual]) {
+		while self.advance_if_any(&[
+			TokenKind::Greater,
+			TokenKind::GreaterEqual,
+			TokenKind::Less,
+			TokenKind::LessEqual,
+		]) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
 				operator: self.previous(),
@@ -238,11 +231,9 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_term(&mut self) -> Result<Expression> {
-		use TokenKind::*;
-
 		let mut expression = self.parse_factor()?;
 
-		while self.advance_if_any(&[Minus, Plus]) {
+		while self.advance_if_any(&[TokenKind::Minus, TokenKind::Plus]) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
 				operator: self.previous(),
@@ -254,11 +245,9 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_factor(&mut self) -> Result<Expression> {
-		use TokenKind::*;
-
 		let mut expression = self.parse_unary()?;
 
-		while self.advance_if_any(&[Slash, Star]) {
+		while self.advance_if_any(&[TokenKind::Slash, TokenKind::Star]) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
 				operator: self.previous(),
@@ -270,9 +259,7 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_unary(&mut self) -> Result<Expression> {
-		use TokenKind::*;
-
-		if self.advance_if_any(&[Bang, Minus]) {
+		if self.advance_if_any(&[TokenKind::Bang, TokenKind::Minus]) {
 			Ok(Expression::Unary {
 				operator: self.previous(),
 				right: Box::new(self.parse_unary()?),
@@ -284,50 +271,48 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_primary(&mut self) -> Result<Expression> {
-		use TokenKind::*;
-
-		if self.advance_if(False) {
+		if self.advance_if(TokenKind::False) {
 			return Ok(Expression::Literal(Value::Bool(false), self.previous()));
 		}
 
-		if self.advance_if(True) {
+		if self.advance_if(TokenKind::True) {
 			return Ok(Expression::Literal(Value::Bool(true), self.previous()));
 		}
 
-		if self.advance_if(Nil) {
+		if self.advance_if(TokenKind::Nil) {
 			return Ok(Expression::Literal(Value::Nil, self.previous()));
 		}
 
-		if self.advance_if_any(&[Number, String]) {
+		if self.advance_if_any(&[TokenKind::Number, TokenKind::String]) {
 			let token = self.previous();
-			return Ok(Expression::Literal(Value::from(token.value.clone().unwrap()), token));
+			return Ok(Expression::Literal(Value::from(token.value().cloned().unwrap()), token));
 		}
 
-		if self.advance_if(LeftParen) {
+		if self.advance_if(TokenKind::LeftParen) {
 			let expression = self.parse_expression()?;
-			self.expect(RightParen, "')'")?;
+			self.expect(TokenKind::RightParen, "')'")?;
 			return Ok(Expression::Grouping(Box::new(expression)));
 		}
 
-		if self.advance_if(Identifier) {
+		if self.advance_if(TokenKind::Identifier) {
 			return Ok(Expression::Variable(self.previous()));
 		}
 
 		let (location, actual) = match self.peek() {
-			Ok(token) => (token.location.clone(), token.to_string()),
-			Err(error) => (error.location.clone(), error.to_string()),
+			Ok(token) => (token.location().clone(), token.to_string()),
+			Err(error) => (error.location().clone(), error.to_string()),
 		};
 
 		Err(ParseError::UnexpectedToken { location, expected: "expression".to_string(), actual })
 	}
 
-	fn peek(&mut self) -> &tokenize::Result {
+	fn peek(&mut self) -> std::result::Result<&Token, &Error> {
 		// Tokens will always end with EndOfFile token
-		self.tokens.peek().unwrap()
+		self.tokens.peek().unwrap().as_ref()
 	}
 
 	fn check(&mut self, token_type: TokenKind) -> bool {
-		matches!(self.peek(), Ok(it) if it.kind == token_type)
+		matches!(self.peek(), Ok(it) if it.kind() == token_type)
 	}
 
 	fn expect(&mut self, token_type: TokenKind, expected: &'static str) -> Result<Token> {
@@ -337,8 +322,8 @@ impl<'a> Parser<'a> {
 		}
 		else {
 			let (location, actual) = self.peek().clone().map_or_else(
-				|error| (error.location.clone(), error.to_string()),
-				|token| (token.location.clone(), token.to_string()),
+				|error| (error.location().clone(), error.to_string()),
+				|token| (token.location().clone(), token.to_string()),
 			);
 
 			Err(ParseError::UnexpectedToken { location, expected: expected.to_string(), actual })
@@ -384,22 +369,18 @@ impl Iterator for Parser<'_> {
 	type Item = Result<Statement>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		use TokenKind::*;
+		if matches!(self.peek(), Ok(token) if token.kind() == TokenKind::EndOfFile) {
+			self.advance();
+			None
+		}
+		else {
+			let next = self.parse_declaration();
 
-		match self.peek() {
-			Ok(Token { kind: EndOfFile, .. }) => {
-				self.advance();
-				None
+			if next.is_err() {
+				self.synchronize();
 			}
-			_ => {
-				let next = self.parse_declaration();
 
-				if next.is_err() {
-					self.synchronize();
-				}
-
-				Some(next)
-			}
+			Some(next)
 		}
 	}
 }
