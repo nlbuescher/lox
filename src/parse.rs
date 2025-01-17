@@ -82,6 +82,7 @@ impl Display for Expression {
 
 #[derive(Debug, Clone)]
 pub enum Statement {
+	Block { start_location: Location, end_location: Location, statements: Vec<Statement> },
 	Expression { expression: Box<Expression> },
 	Print { location: Location, expression: Box<Expression> },
 	VariableDeclaration { name: Box<Token>, initializer: Option<Box<Expression>> },
@@ -90,12 +91,23 @@ pub enum Statement {
 impl Display for Statement {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		match self {
+			Statement::Block { statements, .. } => {
+				writeln!(f, "{{")?;
+				for statement in statements {
+					writeln!(f, "{statement}")?;
+				}
+				writeln!(f, "}}")
+			}
+
 			Statement::Expression { expression } => write!(f, "(expr {expression})"),
+
 			Statement::Print { expression, .. } => write!(f, "(print {expression})"),
+
 			Statement::VariableDeclaration { name, initializer } => match initializer {
 				Some(expression) => {
 					write!(f, "(vardecl {text} = {expression})", text = name.text)
 				}
+
 				None => write!(f, "(vardecl {text})", text = name.text),
 			},
 		}
@@ -105,6 +117,7 @@ impl Display for Statement {
 impl Locatable for Statement {
 	fn location(&self) -> &Location {
 		match self {
+			Statement::Block { start_location: location, .. } => location,
 			Statement::Expression { expression } => expression.location(),
 			Statement::Print { location, .. } => location,
 			Statement::VariableDeclaration { name, .. } => name.location(),
@@ -179,15 +192,28 @@ impl<'a> Parser<'a> {
 		if self.advance_if(TokenKind::Print) {
 			self.parse_print_statement()
 		}
+		else if self.advance_if(TokenKind::LeftBrace) {
+			self.parse_block()
+		}
 		else {
 			self.parse_expression_statement()
 		}
 	}
 
-	fn parse_expression_statement(&mut self) -> Result<Statement> {
-		let expression = self.parse_expression()?;
-		self.expect(TokenKind::Semicolon, "';' after expression")?;
-		Ok(Statement::Expression { expression: Box::new(expression) })
+	fn parse_block(&mut self) -> Result<Statement> {
+		let start_location = self.previous.as_ref().unwrap().location().clone();
+
+		let mut statements = Vec::new();
+
+		while !self.check(TokenKind::RightBrace) {
+			statements.push(self.parse_declaration()?);
+		}
+
+		self.expect(TokenKind::RightBrace, "'}' after block")?;
+
+		let end_location = self.previous.as_ref().unwrap().location().clone();
+
+		Ok(Statement::Block { start_location, end_location, statements })
 	}
 
 	fn parse_print_statement(&mut self) -> Result<Statement> {
@@ -195,6 +221,12 @@ impl<'a> Parser<'a> {
 		let expression = self.parse_expression()?;
 		self.expect(TokenKind::Semicolon, "';' after expression")?;
 		Ok(Statement::Print { location, expression: Box::new(expression) })
+	}
+
+	fn parse_expression_statement(&mut self) -> Result<Statement> {
+		let expression = self.parse_expression()?;
+		self.expect(TokenKind::Semicolon, "';' after expression")?;
+		Ok(Statement::Expression { expression: Box::new(expression) })
 	}
 
 	fn parse_expression(&mut self) -> Result<Expression> {

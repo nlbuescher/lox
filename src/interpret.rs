@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::location::{Locatable, Location};
 use crate::parse::{Expression, Statement};
-use crate::tokenize::TokenKind;
+use crate::tokenize::{Token, TokenKind};
 use crate::value::Value;
 
 #[derive(Debug, Clone, Copy)]
@@ -34,17 +34,18 @@ impl Display for TypeKind {
 #[derive(Debug)]
 pub enum RuntimeError {
 	TypeError { location: Location, expected: TypeKind, actual: TypeKind },
-	VariableNotDefined { location: Location, name: Box<str> },
+	UndefinedVariable(Box<Token>),
 }
 
 impl Display for RuntimeError {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		match self {
-			RuntimeError::TypeError { location, expected, actual } => {
-				write!(f, "{location} Expected {expected} but got {actual}")
+			RuntimeError::TypeError { expected, actual, .. } => {
+				write!(f, "Expected {expected} but got {actual}")
 			}
-			RuntimeError::VariableNotDefined { location, name } => {
-				write!(f, "{location} {name} is not defined")
+
+			RuntimeError::UndefinedVariable(name) => {
+				write!(f, "Undefined variable '{name}'", name = name.text)
 			}
 		}
 	}
@@ -54,88 +55,97 @@ impl Locatable for RuntimeError {
 	fn location(&self) -> &Location {
 		match self {
 			RuntimeError::TypeError { location, .. } => location,
-			RuntimeError::VariableNotDefined { location, .. } => location,
-		}
-	}
-}
-
-impl Value {
-	fn type_kind(&self) -> TypeKind {
-		match self {
-			Value::Nil => TypeKind::Nothing,
-			Value::Bool(_) => TypeKind::Bool,
-			Value::Number(_) => TypeKind::Number,
-			Value::String(_) => TypeKind::String,
-		}
-	}
-
-	fn is_truthy(&self) -> bool {
-		match self {
-			Value::Nil => false,
-			Value::Bool(b) => *b,
-			Value::Number(n) => *n != 0.0,
-			Value::String(s) => !s.is_empty(),
-		}
-	}
-
-	fn as_number(&self, expression: &Expression) -> Result<&f64, RuntimeError> {
-		match self {
-			Value::Number(n) => Ok(n),
-			_ => Err(RuntimeError::TypeError {
-				location: expression.location().clone(),
-				expected: TypeKind::Number,
-				actual: self.type_kind(),
-			}),
-		}
-	}
-
-	fn as_string(&self, expression: &Expression) -> Result<&Box<str>, RuntimeError> {
-		match self {
-			Value::String(s) => Ok(s),
-			_ => Err(RuntimeError::TypeError {
-				location: expression.location().clone(),
-				expected: TypeKind::String,
-				actual: self.type_kind(),
-			}),
-		}
-	}
-
-	fn to_string(&self) -> String {
-		match self {
-			Value::Nil => "nil".to_string(),
-			Value::Bool(b) => b.to_string(),
-			Value::Number(n) => n.to_string(),
-			Value::String(s) => s.to_string(),
+			RuntimeError::UndefinedVariable(name) => name.location(),
 		}
 	}
 }
 
 #[derive(Debug)]
 pub struct Environment {
+	scope: Option<Box<Scope>>,
+}
+
+#[derive(Debug)]
+pub struct Scope {
+	parent: Option<Box<Scope>>,
 	values: HashMap<Box<str>, Value>,
 }
 
-impl Environment {
-	pub fn new() -> Self {
-		Environment { values: HashMap::new() }
+impl Scope {
+	fn new() -> Self {
+		Scope { parent: None, values: HashMap::new() }
 	}
 
-	pub fn execute(&mut self, statement: &Statement) -> Result<Option<Value>, RuntimeError> {
+	fn with_parent(parent: Box<Scope>) -> Self {
+		Scope { parent: Some(parent), values: HashMap::new() }
+	}
+
+	fn get(&self, name: &Token) -> Result<&Value, RuntimeError> {
+		if let Some(value) = self.values.get(&name.text) {
+			return Ok(value);
+		}
+
+		if let Some(ref parent) = self.parent {
+			return parent.get(name);
+		}
+
+		Err(RuntimeError::UndefinedVariable(Box::new(name.clone())))
+	}
+
+	fn define(&mut self, name: &Token, value: Value) {
+		self.values.insert(name.text.clone(), value);
+	}
+
+	fn assign(&mut self, name: &Token, value: Value) -> Result<(), RuntimeError> {
+		if let Some(variable) = self.values.get_mut(&name.text) {
+			*variable = value.clone();
+			return Ok(());
+		}
+
+		if let Some(ref mut parent) = self.parent {
+			return parent.assign(name, value);
+		}
+
+		Err(RuntimeError::UndefinedVariable(Box::new(name.clone())))
+	}
+
+	pub fn execute(
+		mut self: Box<Self>,
+		statement: &Statement,
+	) -> Result<(Box<Scope>, Option<Value>), RuntimeError> {
 		match statement {
-			Statement::Expression { expression } => self.evaluate_expression(expression).map(Some),
+			Statement::Block { statements, .. } => {
+				let mut inner = Box::new(Scope::with_parent(self));
+
+				for statement in statements {
+					let (scope, _) = inner.execute(statement)?;
+					inner = scope;
+				}
+
+				self = inner.parent.take().unwrap();
+
+				Ok((self, None))
+			}
+
+			Statement::Expression { expression } => {
+				let value = self.evaluate_expression(expression)?;
+				Ok((self, Some(value)))
+			}
+
 			Statement::Print { expression, .. } => {
 				println!("{}", self.evaluate_expression(expression)?.to_string());
-				Ok(None)
+				Ok((self, None))
 			}
+
 			Statement::VariableDeclaration { name, initializer } => {
 				let value = match initializer {
 					Some(initializer) => self.evaluate_expression(initializer)?,
 					None => Value::Nil,
 				};
 
-				self.values.insert(name.text.clone(), value);
+				self.define(name, value);
 
-				Ok(None)
+				Ok((self, None))
 			}
 		}
 	}
@@ -143,15 +153,8 @@ impl Environment {
 	fn evaluate_expression(&mut self, expression: &Expression) -> Result<Value, RuntimeError> {
 		match expression {
 			Expression::Assignment { name, value } => {
-				if !self.values.contains_key(&name.text) {
-					return Err(RuntimeError::VariableNotDefined {
-						location: name.location().clone(),
-						name: name.text.clone(),
-					});
-				}
-
 				let value = self.evaluate_expression(value)?;
-				self.values.insert(name.text.clone(), value.clone());
+				self.assign(name, value.clone())?;
 				Ok(value)
 			}
 
@@ -258,13 +261,77 @@ impl Environment {
 				}
 			}
 
-			Expression::Variable(name) => match self.values.get(&name.text) {
-				None => Err(RuntimeError::VariableNotDefined {
-					location: name.location().clone(),
-					name: name.text.clone(),
-				}),
-				Some(value) => Ok(value.clone()),
-			},
+			Expression::Variable(name) => self.get(name).cloned(),
+		}
+	}
+}
+
+impl Environment {
+	pub fn new() -> Self {
+		Environment { scope: Some(Box::new(Scope::new())) }
+	}
+
+	pub fn execute(&mut self, statement: &Statement) -> Result<Option<Value>, RuntimeError> {
+		// temporarily move scope out of environment
+		let scope = self.scope.take().unwrap();
+
+		// get scope back from execution
+		let (scope, value) = scope.execute(statement)?;
+
+		// put scope back
+		self.scope = Some(scope);
+
+		Ok(value)
+	}
+}
+
+impl Value {
+	fn type_kind(&self) -> TypeKind {
+		match self {
+			Value::Nil => TypeKind::Nothing,
+			Value::Bool(_) => TypeKind::Bool,
+			Value::Number(_) => TypeKind::Number,
+			Value::String(_) => TypeKind::String,
+		}
+	}
+
+	fn is_truthy(&self) -> bool {
+		match self {
+			Value::Nil => false,
+			Value::Bool(b) => *b,
+			Value::Number(n) => *n != 0.0,
+			Value::String(s) => !s.is_empty(),
+		}
+	}
+
+	fn as_number(&self, expression: &Expression) -> Result<&f64, RuntimeError> {
+		match self {
+			Value::Number(n) => Ok(n),
+			_ => Err(RuntimeError::TypeError {
+				location: expression.location().clone(),
+				expected: TypeKind::Number,
+				actual: self.type_kind(),
+			}),
+		}
+	}
+
+	fn as_string(&self, expression: &Expression) -> Result<&Box<str>, RuntimeError> {
+		match self {
+			Value::String(s) => Ok(s),
+			_ => Err(RuntimeError::TypeError {
+				location: expression.location().clone(),
+				expected: TypeKind::String,
+				actual: self.type_kind(),
+			}),
+		}
+	}
+
+	fn to_string(&self) -> String {
+		match self {
+			Value::Nil => "nil".to_string(),
+			Value::Bool(b) => b.to_string(),
+			Value::Number(n) => n.to_string(),
+			Value::String(s) => s.to_string(),
 		}
 	}
 }

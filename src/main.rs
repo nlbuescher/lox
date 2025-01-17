@@ -3,7 +3,7 @@ use std::io::{stdin, stdout, BufRead, Write};
 use crate::error::Error;
 use crate::interpret::Environment;
 use crate::location::Locatable;
-use crate::parse::Parser;
+use crate::parse::{Parser, Statement};
 use crate::tokenize::Tokens;
 
 mod error;
@@ -77,7 +77,16 @@ fn run(source: &str, environment: &mut Environment) -> Result<(), Error> {
 	println!("Parse:");
 	for statement in parser.clone() {
 		match statement {
-			Ok(statement) => println!("{location} {statement}", location = statement.location()),
+			Ok(statement) => match statement {
+				Statement::Block { start_location, end_location, statements } => {
+					println!("{start_location} {{");
+					for statement in statements {
+						println!("{location} {statement}", location = statement.location());
+					}
+					println!("{end_location} }}")
+				}
+				_ => println!("{location} {statement}", location = statement.location()),
+			}
 			Err(error) => {
 				println!("{location} {error}\n", location = error.location());
 				return Ok(());
@@ -88,9 +97,10 @@ fn run(source: &str, environment: &mut Environment) -> Result<(), Error> {
 
 	println!("Interpret:");
 	for statement in parser {
-		let result = statement
-			.map_err(Error::from)
-			.map(|statement| environment.execute(&statement).map_err(Error::from));
+		let result = match statement {
+			Err(error) => Err(Error::Parse(error)),
+			Ok(statement) => Ok(environment.execute(&statement)?)
+		};
 
 		if let Err(error) = result {
 			println!("{location} {error}", location = error.location());
@@ -108,7 +118,7 @@ mod tests {
 
 	#[test]
 	pub fn test() {
-		let input = "var a = \"420\"; var b = \"69\"; print a + b;";
+		let input = "{ var a = \"420\"; var b = \"69\"; print a + b; } print a;";
 
 		let mut environment = Environment::new();
 
