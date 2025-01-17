@@ -1,5 +1,7 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::rc::Rc;
 
 use crate::location::{Locatable, Location};
 use crate::parse::{Expression, Statement};
@@ -62,12 +64,12 @@ impl Locatable for RuntimeError {
 
 #[derive(Debug)]
 pub struct Environment {
-	scope: Option<Box<Scope>>,
+	scope: Rc<RefCell<Scope>>,
 }
 
 #[derive(Debug)]
 pub struct Scope {
-	parent: Option<Box<Scope>>,
+	parent: Option<Rc<RefCell<Scope>>>,
 	values: HashMap<Box<str>, Value>,
 }
 
@@ -76,91 +78,95 @@ impl Scope {
 		Scope { parent: None, values: HashMap::new() }
 	}
 
-	fn with_parent(parent: Box<Scope>) -> Self {
+	fn with_parent(parent: Rc<RefCell<Scope>>) -> Self {
 		Scope { parent: Some(parent), values: HashMap::new() }
 	}
 
-	fn get(&self, name: &Token) -> Result<&Value, RuntimeError> {
-		if let Some(value) = self.values.get(&name.text) {
-			return Ok(value);
+	fn get(scope: &Rc<RefCell<Scope>>, name: &Token) -> Result<Value, RuntimeError> {
+		if let Some(value) = scope.borrow().values.get(&name.text) {
+			return Ok(value.clone());
 		}
 
-		if let Some(ref parent) = self.parent {
-			return parent.get(name);
+		if let Some(ref parent) = scope.borrow().parent {
+			return Scope::get(parent, name);
 		}
 
 		Err(RuntimeError::UndefinedVariable(Box::new(name.clone())))
 	}
 
-	fn define(&mut self, name: &Token, value: Value) {
-		self.values.insert(name.text.clone(), value);
+	fn define(scope: &mut Rc<RefCell<Scope>>, name: &Token, value: Value) {
+		scope.borrow_mut().values.insert(name.text.clone(), value);
 	}
 
-	fn assign(&mut self, name: &Token, value: Value) -> Result<(), RuntimeError> {
-		if let Some(variable) = self.values.get_mut(&name.text) {
+	fn assign(
+		scope: &mut Rc<RefCell<Self>>,
+		name: &Token,
+		value: Value,
+	) -> Result<(), RuntimeError> {
+		if let Some(variable) = scope.borrow_mut().values.get_mut(&name.text) {
 			*variable = value.clone();
 			return Ok(());
 		}
 
-		if let Some(ref mut parent) = self.parent {
-			return parent.assign(name, value);
+		if let Some(ref mut parent) = scope.borrow_mut().parent {
+			return Scope::assign(parent, name, value);
 		}
 
 		Err(RuntimeError::UndefinedVariable(Box::new(name.clone())))
 	}
 
 	pub fn execute(
-		mut self: Box<Self>,
+		scope: &mut Rc<RefCell<Scope>>,
 		statement: &Statement,
-	) -> Result<(Box<Scope>, Option<Value>), RuntimeError> {
+	) -> Result<Option<Value>, RuntimeError> {
 		match statement {
 			Statement::Block { statements, .. } => {
-				let mut inner = Box::new(Scope::with_parent(self));
+				let mut inner = Rc::new(RefCell::new(Scope::with_parent(scope.clone())));
 
 				for statement in statements {
-					let (scope, _) = inner.execute(statement)?;
-					inner = scope;
+					Scope::execute(&mut inner, statement)?;
 				}
 
-				self = inner.parent.take().unwrap();
-
-				Ok((self, None))
+				Ok(None)
 			}
 
 			Statement::Expression { expression } => {
-				let value = self.evaluate_expression(expression)?;
-				Ok((self, Some(value)))
+				let value = Scope::evaluate_expression(scope, expression)?;
+				Ok(Some(value))
 			}
 
 			Statement::Print { expression, .. } => {
-				println!("{}", self.evaluate_expression(expression)?.to_string());
-				Ok((self, None))
+				println!("{}", Scope::evaluate_expression(scope, expression)?.to_string());
+				Ok(None)
 			}
 
 			Statement::VariableDeclaration { name, initializer } => {
 				let value = match initializer {
-					Some(initializer) => self.evaluate_expression(initializer)?,
+					Some(initializer) => Scope::evaluate_expression(scope, initializer)?,
 					None => Value::Nil,
 				};
 
-				self.define(name, value);
+				Scope::define(scope, name, value);
 
-				Ok((self, None))
+				Ok(None)
 			}
 		}
 	}
 
-	fn evaluate_expression(&mut self, expression: &Expression) -> Result<Value, RuntimeError> {
+	fn evaluate_expression(
+		scope: &mut Rc<RefCell<Scope>>,
+		expression: &Expression,
+	) -> Result<Value, RuntimeError> {
 		match expression {
 			Expression::Assignment { name, value } => {
-				let value = self.evaluate_expression(value)?;
-				self.assign(name, value.clone())?;
+				let value = Scope::evaluate_expression(scope, value)?;
+				Scope::assign(scope, name, value.clone())?;
 				Ok(value)
 			}
 
 			Expression::Binary { left, operator, right } => {
-				let left_value = self.evaluate_expression(left)?;
-				let right_value = self.evaluate_expression(right)?;
+				let left_value = Scope::evaluate_expression(scope, left)?;
+				let right_value = Scope::evaluate_expression(scope, right)?;
 
 				match operator.kind {
 					TokenKind::Greater => {
@@ -234,7 +240,7 @@ impl Scope {
 				}
 			}
 
-			Expression::Grouping(expression) => self.evaluate_expression(expression),
+			Expression::Grouping(expression) => Scope::evaluate_expression(scope, expression),
 
 			Expression::Literal(token) => match token.kind {
 				TokenKind::Nil => Ok(Value::Nil),
@@ -246,7 +252,7 @@ impl Scope {
 			},
 
 			Expression::Unary { operator, right } => {
-				let right_value = self.evaluate_expression(right)?;
+				let right_value = Scope::evaluate_expression(scope, right)?;
 
 				match operator.kind {
 					TokenKind::Bang => Ok(Value::Bool(!right_value.is_truthy())),
@@ -261,27 +267,18 @@ impl Scope {
 				}
 			}
 
-			Expression::Variable(name) => self.get(name).cloned(),
+			Expression::Variable(name) => Scope::get(scope, name),
 		}
 	}
 }
 
 impl Environment {
 	pub fn new() -> Self {
-		Environment { scope: Some(Box::new(Scope::new())) }
+		Environment { scope: Rc::new(RefCell::new(Scope::new())) }
 	}
 
 	pub fn execute(&mut self, statement: &Statement) -> Result<Option<Value>, RuntimeError> {
-		// temporarily move scope out of environment
-		let scope = self.scope.take().unwrap();
-
-		// get scope back from execution
-		let (scope, value) = scope.execute(statement)?;
-
-		// put scope back
-		self.scope = Some(scope);
-
-		Ok(value)
+		Scope::execute(&mut self.scope, statement)
 	}
 }
 

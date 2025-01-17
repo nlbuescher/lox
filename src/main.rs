@@ -86,7 +86,7 @@ fn run(source: &str, environment: &mut Environment) -> Result<(), Error> {
 					println!("{end_location} }}")
 				}
 				_ => println!("{location} {statement}", location = statement.location()),
-			}
+			},
 			Err(error) => {
 				println!("{location} {error}\n", location = error.location());
 				return Ok(());
@@ -99,7 +99,7 @@ fn run(source: &str, environment: &mut Environment) -> Result<(), Error> {
 	for statement in parser {
 		let result = match statement {
 			Err(error) => Err(Error::Parse(error)),
-			Ok(statement) => Ok(environment.execute(&statement)?)
+			Ok(statement) => Ok(environment.execute(&statement)?),
 		};
 
 		if let Err(error) = result {
