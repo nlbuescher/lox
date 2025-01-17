@@ -1,50 +1,59 @@
 use std::fmt::{Display, Formatter};
 use std::iter::Peekable;
-use std::string::String;
+use std::ops::Deref;
 
-use crate::location::Location;
+use crate::location::{Locatable, Location};
 use crate::tokenize;
 use crate::tokenize::{Error, Token, TokenKind, Tokens};
-use crate::value::Value;
 
 pub type Result<T> = std::result::Result<T, ParseError>;
 
 #[derive(Debug)]
 pub enum ParseError {
-	UnexpectedToken { location: Location, expected: String, actual: String },
+	UnexpectedToken { expected: &'static str, actual: Box<tokenize::Result> },
 	InvalidAssignment { location: Location },
 }
 
 impl Display for ParseError {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		match self {
-			ParseError::UnexpectedToken { location, expected, actual } => {
-				write!(f, "{location} Expected {expected} but got {actual}")
+			ParseError::UnexpectedToken { expected, actual } => match actual.deref() {
+				Ok(token) => write!(f, "Expected {expected} but got {token}"),
+				Err(error) => write!(f, "Expected {expected} but got {error}"),
+			},
+			ParseError::InvalidAssignment { .. } => {
+				write!(f, "Invalid assignment target")
 			}
-			ParseError::InvalidAssignment { location } => {
-				write!(f, "{location} Invalid assignment target")
-			}
+		}
+	}
+}
+
+impl Locatable for ParseError {
+	fn location(&self) -> &Location {
+		match self {
+			ParseError::UnexpectedToken { actual, .. } => actual.location(),
+			ParseError::InvalidAssignment { location, .. } => location,
 		}
 	}
 }
 
 #[derive(Debug, Clone)]
 pub enum Expression {
-	Assignment { name: Token, value: Box<Expression> },
-	Binary { left: Box<Expression>, operator: Token, right: Box<Expression> },
-	Literal(Value, Token),
+	Assignment { name: Box<Token>, value: Box<Expression> },
+	Binary { left: Box<Expression>, operator: Box<Token>, right: Box<Expression> },
+	Literal(Box<Token>),
 	Grouping(Box<Expression>),
-	Unary { operator: Token, right: Box<Expression> },
-	Variable(Token),
+	Unary { operator: Box<Token>, right: Box<Expression> },
+	Variable(Box<Token>),
 }
 
-impl Expression {
-	pub fn location(&self) -> &Location {
+impl Locatable for Expression {
+	fn location(&self) -> &Location {
 		match self {
 			Expression::Assignment { name, .. } => name.location(),
 			Expression::Binary { left, .. } => left.location(),
 			Expression::Grouping(expression) => expression.location(),
-			Expression::Literal(_, token) => token.location(),
+			Expression::Literal(token) => token.location(),
 			Expression::Unary { operator, .. } => operator.location(),
 			Expression::Variable(token) => token.location(),
 		}
@@ -57,38 +66,48 @@ impl Display for Expression {
 			Expression::Assignment { name, value } => write!(f, "(assign {name} = {value})"),
 
 			Expression::Binary { left, operator, right } => {
-				write!(f, "({text} {left} {right})", text = operator.text())
+				write!(f, "({text} {left} {right})", text = operator.text)
 			}
 
-			Expression::Literal(_, token) => write!(f, "{text}", text = token.text()),
+			Expression::Literal(token) => write!(f, "{text}", text = token.text),
 
 			Expression::Grouping(expression) => write!(f, "(group {expression})"),
 
 			Expression::Unary { operator, right } => write!(f, "({operator} {right})"),
 
-			Expression::Variable(token) => write!(f, "(var {text})", text = token.text()),
+			Expression::Variable(token) => write!(f, "(var {text})", text = token.text),
 		}
 	}
 }
 
 #[derive(Debug, Clone)]
 pub enum Statement {
-	Expression { expression: Expression },
-	Print { expression: Expression },
-	VariableDeclaration { name: Token, initializer: Option<Expression> },
+	Expression { expression: Box<Expression> },
+	Print { location: Location, expression: Box<Expression> },
+	VariableDeclaration { name: Box<Token>, initializer: Option<Box<Expression>> },
 }
 
 impl Display for Statement {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		match self {
 			Statement::Expression { expression } => write!(f, "(expr {expression})"),
-			Statement::Print { expression } => write!(f, "(print {expression})"),
+			Statement::Print { expression, .. } => write!(f, "(print {expression})"),
 			Statement::VariableDeclaration { name, initializer } => match initializer {
 				Some(expression) => {
-					write!(f, "(vardecl {text} = {expression})", text = name.text())
+					write!(f, "(vardecl {text} = {expression})", text = name.text)
 				}
-				None => write!(f, "(vardecl {text})", text = name.text()),
+				None => write!(f, "(vardecl {text})", text = name.text),
 			},
+		}
+	}
+}
+
+impl Locatable for Statement {
+	fn location(&self) -> &Location {
+		match self {
+			Statement::Expression { expression } => expression.location(),
+			Statement::Print { location, .. } => location,
+			Statement::VariableDeclaration { name, .. } => name.location(),
 		}
 	}
 }
@@ -105,20 +124,20 @@ impl<'a> Parser<'a> {
 	}
 
 	pub fn synchronize(&mut self) {
-		if matches!(self.peek(), Ok(token) if token.kind() == TokenKind::EndOfFile) {
+		if matches!(self.peek(), Ok(token) if token.kind == TokenKind::EndOfFile) {
 			return;
 		}
 
 		self.advance();
 
 		loop {
-			if self.previous().kind() == TokenKind::Semicolon {
+			if self.previous().kind == TokenKind::Semicolon {
 				break;
 			}
 
 			if self.peek().is_ok_and(|it| {
 				matches!(
-					it.kind(),
+					it.kind,
 					TokenKind::Class
 						| TokenKind::Fun | TokenKind::Var
 						| TokenKind::For | TokenKind::If
@@ -150,7 +169,10 @@ impl<'a> Parser<'a> {
 
 		self.expect(TokenKind::Semicolon, "';' after variable declaration")?;
 
-		Ok(Statement::VariableDeclaration { name: name.clone(), initializer })
+		Ok(Statement::VariableDeclaration {
+			name: Box::new(name),
+			initializer: initializer.map(Box::new),
+		})
 	}
 
 	fn parse_statement(&mut self) -> Result<Statement> {
@@ -165,13 +187,14 @@ impl<'a> Parser<'a> {
 	fn parse_expression_statement(&mut self) -> Result<Statement> {
 		let expression = self.parse_expression()?;
 		self.expect(TokenKind::Semicolon, "';' after expression")?;
-		Ok(Statement::Expression { expression })
+		Ok(Statement::Expression { expression: Box::new(expression) })
 	}
 
 	fn parse_print_statement(&mut self) -> Result<Statement> {
+		let location = self.previous.as_ref().unwrap().location().clone();
 		let expression = self.parse_expression()?;
 		self.expect(TokenKind::Semicolon, "';' after expression")?;
-		Ok(Statement::Print { expression })
+		Ok(Statement::Print { location, expression: Box::new(expression) })
 	}
 
 	fn parse_expression(&mut self) -> Result<Expression> {
@@ -203,7 +226,7 @@ impl<'a> Parser<'a> {
 		while self.advance_if_any(&[TokenKind::BangEqual, TokenKind::EqualEqual]) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: self.previous(),
+				operator: Box::new(self.previous()),
 				right: Box::new(self.parse_comparison()?),
 			}
 		}
@@ -222,7 +245,7 @@ impl<'a> Parser<'a> {
 		]) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: self.previous(),
+				operator: Box::new(self.previous()),
 				right: Box::new(self.parse_term()?),
 			}
 		}
@@ -236,7 +259,7 @@ impl<'a> Parser<'a> {
 		while self.advance_if_any(&[TokenKind::Minus, TokenKind::Plus]) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: self.previous(),
+				operator: Box::new(self.previous()),
 				right: Box::new(self.parse_factor()?),
 			}
 		}
@@ -250,7 +273,7 @@ impl<'a> Parser<'a> {
 		while self.advance_if_any(&[TokenKind::Slash, TokenKind::Star]) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: self.previous(),
+				operator: Box::new(self.previous()),
 				right: Box::new(self.parse_unary()?),
 			}
 		}
@@ -261,7 +284,7 @@ impl<'a> Parser<'a> {
 	fn parse_unary(&mut self) -> Result<Expression> {
 		if self.advance_if_any(&[TokenKind::Bang, TokenKind::Minus]) {
 			Ok(Expression::Unary {
-				operator: self.previous(),
+				operator: Box::new(self.previous()),
 				right: Box::new(self.parse_unary()?),
 			})
 		}
@@ -271,21 +294,14 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_primary(&mut self) -> Result<Expression> {
-		if self.advance_if(TokenKind::False) {
-			return Ok(Expression::Literal(Value::Bool(false), self.previous()));
-		}
-
-		if self.advance_if(TokenKind::True) {
-			return Ok(Expression::Literal(Value::Bool(true), self.previous()));
-		}
-
-		if self.advance_if(TokenKind::Nil) {
-			return Ok(Expression::Literal(Value::Nil, self.previous()));
-		}
-
-		if self.advance_if_any(&[TokenKind::Number, TokenKind::String]) {
-			let token = self.previous();
-			return Ok(Expression::Literal(Value::from(token.value().cloned().unwrap()), token));
+		if self.advance_if_any(&[
+			TokenKind::False,
+			TokenKind::True,
+			TokenKind::Nil,
+			TokenKind::Number,
+			TokenKind::String,
+		]) {
+			return Ok(Expression::Literal(Box::new(self.previous())));
 		}
 
 		if self.advance_if(TokenKind::LeftParen) {
@@ -295,15 +311,13 @@ impl<'a> Parser<'a> {
 		}
 
 		if self.advance_if(TokenKind::Identifier) {
-			return Ok(Expression::Variable(self.previous()));
+			return Ok(Expression::Variable(Box::new(self.previous())));
 		}
 
-		let (location, actual) = match self.peek() {
-			Ok(token) => (token.location().clone(), token.to_string()),
-			Err(error) => (error.location().clone(), error.to_string()),
-		};
-
-		Err(ParseError::UnexpectedToken { location, expected: "expression".to_string(), actual })
+		Err(ParseError::UnexpectedToken {
+			expected: "expression",
+			actual: Box::new(self.peek().map(Clone::clone).map_err(Clone::clone)),
+		})
 	}
 
 	fn peek(&mut self) -> std::result::Result<&Token, &Error> {
@@ -312,7 +326,7 @@ impl<'a> Parser<'a> {
 	}
 
 	fn check(&mut self, token_type: TokenKind) -> bool {
-		matches!(self.peek(), Ok(it) if it.kind() == token_type)
+		matches!(self.peek(), Ok(it) if it.kind == token_type)
 	}
 
 	fn expect(&mut self, token_type: TokenKind, expected: &'static str) -> Result<Token> {
@@ -321,12 +335,10 @@ impl<'a> Parser<'a> {
 			Ok(self.previous())
 		}
 		else {
-			let (location, actual) = self.peek().clone().map_or_else(
-				|error| (error.location().clone(), error.to_string()),
-				|token| (token.location().clone(), token.to_string()),
-			);
-
-			Err(ParseError::UnexpectedToken { location, expected: expected.to_string(), actual })
+			Err(ParseError::UnexpectedToken {
+				expected,
+				actual: Box::new(self.peek().cloned().map_err(Clone::clone)),
+			})
 		}
 	}
 
@@ -369,7 +381,7 @@ impl Iterator for Parser<'_> {
 	type Item = Result<Statement>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		if matches!(self.peek(), Ok(token) if token.kind() == TokenKind::EndOfFile) {
+		if matches!(self.peek(), Ok(token) if token.kind == TokenKind::EndOfFile) {
 			self.advance();
 			None
 		}

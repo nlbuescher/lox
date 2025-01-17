@@ -1,6 +1,7 @@
 use std::fmt::{Display, Formatter};
 
 use crate::interpret::RuntimeError;
+use crate::location::{Locatable, Location};
 use crate::parse::ParseError;
 
 #[derive(Debug)]
@@ -18,6 +19,16 @@ impl Display for Error {
 			Error::Io(inner) => inner.fmt(f),
 			Error::Parse(inner) => inner.fmt(f),
 			Error::Runtime(inner) => inner.fmt(f),
+		}
+	}
+}
+
+impl Locatable for Error {
+	fn location(&self) -> &Location {
+		match self {
+			Error::BadUsage(_) | Error::Io(_) => &Location { line: 0, column: 0 },
+			Error::Parse(error) => error.location(),
+			Error::Runtime(error) => error.location(),
 		}
 	}
 }

@@ -3,6 +3,7 @@ use std::process::ExitCode;
 
 use crate::error::Error;
 use crate::interpret::Environment;
+use crate::location::Locatable;
 use crate::parse::Parser;
 use crate::tokenize::Tokens;
 
@@ -24,7 +25,7 @@ pub fn main() -> ExitCode {
 
 	result.map_or_else(
 		|error| {
-			eprintln!("{error}");
+			eprintln!("{location} {error}", location = error.location());
 
 			match error {
 				Error::BadUsage(_) => ExitCode::from(64),
@@ -78,9 +79,9 @@ fn run(source: &str, environment: &mut Environment) -> Result<(), Error> {
 	println!("Parse:");
 	for statement in parser.clone() {
 		match statement {
-			Ok(statement) => println!("{statement}"),
+			Ok(statement) => println!("{location} {statement}", location = statement.location()),
 			Err(error) => {
-				println!("{error}\n");
+				println!("{location} {error}\n", location = error.location());
 				return Ok(());
 			}
 		}
@@ -89,13 +90,12 @@ fn run(source: &str, environment: &mut Environment) -> Result<(), Error> {
 
 	println!("Interpret:");
 	for statement in parser {
-		let result = statement.map_or_else(
-			|error| Err(Error::Parse(error)),
-			|statement| Ok(environment.execute(&statement)?),
-		);
+		let result = statement
+			.map_err(Error::from)
+			.map(|statement| environment.execute(&statement).map_err(Error::from));
 
 		if let Err(error) = result {
-			println!("{error}");
+			println!("{location} {error}", location = error.location());
 			break;
 		}
 	}
@@ -110,12 +110,12 @@ mod tests {
 
 	#[test]
 	pub fn test() {
-		let input = "var a = 60; var b = 9; print a + b;";
+		let input = "var a = \"420\"; var b = \"69\"; print a + b;";
 
 		let mut environment = Environment::new();
 
 		if let Err(error) = run(input, &mut environment) {
-			println!("{error}");
+			println!("{location} {error}", location = error.location());
 		}
 	}
 }

@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::str::Chars;
 
-use crate::location::Location;
+use crate::location::{Locatable, Location};
 use crate::value::Value;
 
 pub type Result = std::result::Result<Token, Error>;
@@ -19,20 +19,17 @@ pub struct Tokens<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
-	data: Box<TokenData>,
+	location: Location,
+	pub kind: TokenKind,
+	pub text: Box<str>,
+	pub value: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Error {
-	data: Box<TokenData>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct TokenData {
 	location: Location,
-	kind: std::result::Result<TokenKind, ErrorKind>,
-	text: String,
-	value: Option<Value>,
+	pub kind: ErrorKind,
+	pub text: Box<str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -115,62 +112,23 @@ impl<'a> Tokens<'a> {
 }
 
 impl Token {
-	fn with_text(location: Location, kind: TokenKind, text: impl Into<String>) -> Self {
-		Token {
-			data: Box::new(TokenData { location, kind: Ok(kind), text: text.into(), value: None }),
-		}
+	fn with_text(location: Location, kind: TokenKind, text: impl Into<Box<str>>) -> Self {
+		Token { location, kind, text: text.into(), value: None }
 	}
 
 	fn with_value(
 		location: Location,
 		kind: TokenKind,
-		text: impl Into<String>,
+		text: impl Into<Box<str>>,
 		value: Value,
 	) -> Self {
-		Token {
-			data: Box::new(TokenData {
-				location,
-				kind: Ok(kind),
-				text: text.into(),
-				value: Some(value),
-			}),
-		}
-	}
-
-	pub fn location(&self) -> &Location {
-		&self.data.location
-	}
-
-	pub fn kind(&self) -> TokenKind {
-		self.data.kind.ok().unwrap()
-	}
-
-	pub fn text(&self) -> &str {
-		&self.data.text
-	}
-
-	pub fn value(&self) -> Option<&Value> {
-		self.data.value.as_ref()
+		Token { location, kind, text: text.into(), value: Some(value) }
 	}
 }
 
 impl Error {
-	fn new(location: Location, kind: ErrorKind, text: impl Into<String>) -> Error {
-		Error {
-			data: Box::new(TokenData { location, kind: Err(kind), text: text.into(), value: None }),
-		}
-	}
-
-	pub fn location(&self) -> &Location {
-		&self.data.location
-	}
-
-	pub fn kind(&self) -> ErrorKind {
-		self.data.kind.err().unwrap()
-	}
-
-	pub fn text(&self) -> &str {
-		&self.data.text
+	fn new(location: Location, kind: ErrorKind, text: impl Into<Box<str>>) -> Error {
+		Error { location, kind, text: text.into() }
 	}
 }
 
@@ -235,23 +193,42 @@ impl ErrorKind {
 }
 
 /////////////////////////////////////////////////////////////////////////////
+// Locatable
+/////////////////////////////////////////////////////////////////////////////
+
+impl Locatable for Token {
+	fn location(&self) -> &Location {
+		&self.location
+	}
+}
+
+impl Locatable for Error {
+	fn location(&self) -> &Location {
+		&self.location
+	}
+}
+
+/////////////////////////////////////////////////////////////////////////////
 // Display
 /////////////////////////////////////////////////////////////////////////////
 
 impl Display for Token {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		match self.value() {
-			Some(value) => {
-				write!(f, "{kind} '{text}' {value:?}", kind = self.kind(), text = self.text())
+		match self.value {
+			Some(ref value) => {
+				write!(f, "{} '{}' {:?}", self.kind, self.text, value)
 			}
-			None => write!(f, "{kind} '{text}'", kind = self.kind(), text = self.text()),
+			None => match self.kind {
+				TokenKind::EndOfFile => write!(f, "{}", self.kind),
+				_ => write!(f, "{} '{}'", self.kind, self.text),
+			},
 		}
 	}
 }
 
 impl Display for Error {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		write!(f, "{} '{}'", self.kind(), self.text())
+		write!(f, "{} '{}'", self.kind, self.text)
 	}
 }
 
@@ -368,7 +345,7 @@ impl<'a> Tokens<'a> {
 
 			Ok(self.get_value_token(
 				TokenKind::String,
-				Value::String(self.buffer[1..self.buffer.len() - 1].to_string()),
+				Value::String(self.buffer[1..self.buffer.len() - 1].into()),
 			))
 		}
 	}

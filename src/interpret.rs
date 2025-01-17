@@ -1,21 +1,46 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 
-use crate::location::Location;
+use crate::location::{Locatable, Location};
 use crate::parse::{Expression, Statement};
 use crate::tokenize::TokenKind;
 use crate::value::Value;
 
+#[derive(Debug, Clone, Copy)]
+pub enum TypeKind {
+	Nothing,
+	Bool,
+	Number,
+	String,
+}
+
+impl TypeKind {
+	fn as_str(&self) -> &'static str {
+		match self {
+			TypeKind::Nothing => "Nothing",
+			TypeKind::Bool => "Bool",
+			TypeKind::Number => "Number",
+			TypeKind::String => "String",
+		}
+	}
+}
+
+impl Display for TypeKind {
+	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+		f.write_str(self.as_str())
+	}
+}
+
 #[derive(Debug)]
 pub enum RuntimeError {
-	WrongType { location: Location, expected: String, actual: String },
-	VariableNotDefined { location: Location, name: String },
+	TypeError { location: Location, expected: TypeKind, actual: TypeKind },
+	VariableNotDefined { location: Location, name: Box<str> },
 }
 
 impl Display for RuntimeError {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		match self {
-			RuntimeError::WrongType { location, expected, actual } => {
+			RuntimeError::TypeError { location, expected, actual } => {
 				write!(f, "{location} Expected {expected} but got {actual}")
 			}
 			RuntimeError::VariableNotDefined { location, name } => {
@@ -25,13 +50,22 @@ impl Display for RuntimeError {
 	}
 }
 
-impl Value {
-	fn type_name(&self) -> &'static str {
+impl Locatable for RuntimeError {
+	fn location(&self) -> &Location {
 		match self {
-			Value::Nil => "Nothing",
-			Value::Bool(_) => "Bool",
-			Value::Number(_) => "Number",
-			Value::String(_) => "String",
+			RuntimeError::TypeError { location, .. } => location,
+			RuntimeError::VariableNotDefined { location, .. } => location,
+		}
+	}
+}
+
+impl Value {
+	fn type_kind(&self) -> TypeKind {
+		match self {
+			Value::Nil => TypeKind::Nothing,
+			Value::Bool(_) => TypeKind::Bool,
+			Value::Number(_) => TypeKind::Number,
+			Value::String(_) => TypeKind::String,
 		}
 	}
 
@@ -47,21 +81,21 @@ impl Value {
 	fn as_number(&self, expression: &Expression) -> Result<&f64, RuntimeError> {
 		match self {
 			Value::Number(n) => Ok(n),
-			_ => Err(RuntimeError::WrongType {
+			_ => Err(RuntimeError::TypeError {
 				location: expression.location().clone(),
-				expected: "number".into(),
-				actual: self.type_name().into(),
+				expected: TypeKind::Number,
+				actual: self.type_kind(),
 			}),
 		}
 	}
 
-	fn as_string(&self, expression: &Expression) -> Result<String, RuntimeError> {
+	fn as_string(&self, expression: &Expression) -> Result<&Box<str>, RuntimeError> {
 		match self {
-			Value::String(s) => Ok(s.clone()),
-			_ => Err(RuntimeError::WrongType {
+			Value::String(s) => Ok(s),
+			_ => Err(RuntimeError::TypeError {
 				location: expression.location().clone(),
-				expected: "string".into(),
-				actual: self.type_name().into(),
+				expected: TypeKind::String,
+				actual: self.type_kind(),
 			}),
 		}
 	}
@@ -71,14 +105,14 @@ impl Value {
 			Value::Nil => "nil".to_string(),
 			Value::Bool(b) => b.to_string(),
 			Value::Number(n) => n.to_string(),
-			Value::String(s) => s.clone(),
+			Value::String(s) => s.to_string(),
 		}
 	}
 }
 
 #[derive(Debug)]
 pub struct Environment {
-	values: HashMap<String, Value>,
+	values: HashMap<Box<str>, Value>,
 }
 
 impl Environment {
@@ -88,12 +122,9 @@ impl Environment {
 
 	pub fn execute(&mut self, statement: &Statement) -> Result<Option<Value>, RuntimeError> {
 		match statement {
-			Statement::Expression { expression: value } => {
-				self.evaluate_expression(value).map(Some)
-			}
-			Statement::Print { expression: value } => {
-				println!("{}", self.evaluate_expression(value)?.to_string());
-
+			Statement::Expression { expression } => self.evaluate_expression(expression).map(Some),
+			Statement::Print { expression, .. } => {
+				println!("{}", self.evaluate_expression(expression)?.to_string());
 				Ok(None)
 			}
 			Statement::VariableDeclaration { name, initializer } => {
@@ -102,7 +133,7 @@ impl Environment {
 					None => Value::Nil,
 				};
 
-				self.values.insert(name.text().to_string(), value);
+				self.values.insert(name.text.clone(), value);
 
 				Ok(None)
 			}
@@ -112,17 +143,15 @@ impl Environment {
 	fn evaluate_expression(&mut self, expression: &Expression) -> Result<Value, RuntimeError> {
 		match expression {
 			Expression::Assignment { name, value } => {
-				let text = name.text().to_string();
-
-				if !self.values.contains_key(&text) {
+				if !self.values.contains_key(&name.text) {
 					return Err(RuntimeError::VariableNotDefined {
 						location: name.location().clone(),
-						name: text.clone(),
+						name: name.text.clone(),
 					});
 				}
 
 				let value = self.evaluate_expression(value)?;
-				self.values.insert(text.clone(), value.clone());
+				self.values.insert(name.text.clone(), value.clone());
 				Ok(value)
 			}
 
@@ -130,7 +159,7 @@ impl Environment {
 				let left_value = self.evaluate_expression(left)?;
 				let right_value = self.evaluate_expression(right)?;
 
-				match operator.kind() {
+				match operator.kind {
 					TokenKind::Greater => {
 						let left_number = left_value.as_number(left)?;
 						let right_number = right_value.as_number(right)?;
@@ -180,7 +209,7 @@ impl Environment {
 							let left_string = left_value.as_string(left)?;
 							let right_string = right_value.as_string(right)?;
 
-							Ok(Value::String(format!("{left_string}{right_string}")))
+							Ok(Value::String(format!("{left_string}{right_string}").into()))
 						}
 					},
 
@@ -198,18 +227,25 @@ impl Environment {
 						Ok(Value::Number(left_number * right_number))
 					}
 
-					_ => unreachable!("Unknown operator evaluating binary expression!"),
+					it => unreachable!("Unknown operator {} evaluating binary expression!", it),
 				}
 			}
 
 			Expression::Grouping(expression) => self.evaluate_expression(expression),
 
-			Expression::Literal(value, _) => Ok(value.clone()),
+			Expression::Literal(token) => match token.kind {
+				TokenKind::Nil => Ok(Value::Nil),
+				TokenKind::True => Ok(Value::Bool(true)),
+				TokenKind::False => Ok(Value::Bool(false)),
+				TokenKind::Number => Ok(token.value.clone().unwrap()),
+				TokenKind::String => Ok(token.value.clone().unwrap()),
+				it => unreachable!("Unknown token {} evaluating literal!", it),
+			},
 
 			Expression::Unary { operator, right } => {
 				let right_value = self.evaluate_expression(right)?;
 
-				match operator.kind() {
+				match operator.kind {
 					TokenKind::Bang => Ok(Value::Bool(!right_value.is_truthy())),
 
 					TokenKind::Minus => {
@@ -218,21 +254,17 @@ impl Environment {
 						Ok(Value::Number(-right_number))
 					}
 
-					_ => unreachable!("Unknown operator evaluating unary expression!"),
+					it => unreachable!("Unknown operator {} evaluating unary expression!", it),
 				}
 			}
 
-			Expression::Variable(token) => {
-				let text = token.text().to_string();
-
-				match self.values.get(&text) {
-					None => Err(RuntimeError::VariableNotDefined {
-						location: token.location().clone(),
-						name: text.clone(),
-					}),
-					Some(value) => Ok(value.clone()),
-				}
-			}
+			Expression::Variable(name) => match self.values.get(&name.text) {
+				None => Err(RuntimeError::VariableNotDefined {
+					location: name.location().clone(),
+					name: name.text.clone(),
+				}),
+				Some(value) => Ok(value.clone()),
+			},
 		}
 	}
 }
