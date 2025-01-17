@@ -1,5 +1,4 @@
 use std::io::{stdin, stdout, BufRead, Write};
-use std::process::ExitCode;
 
 use crate::error::Error;
 use crate::interpret::Environment;
@@ -14,27 +13,26 @@ mod parse;
 mod tokenize;
 mod value;
 
-pub fn main() -> ExitCode {
+pub fn main() {
 	let args = std::env::args().collect::<Vec<String>>();
 
 	let result = match args.len() {
-		2 => run_file(&args[1]),
 		1 => run_prompt(),
-		_ => Err(Error::BadUsage(args)),
+		2 => run_file(&args[1]),
+		_ => {
+			eprintln!("Usage: {} <filename>", args[0]);
+			std::process::exit(64)
+		}
 	};
 
-	result.map_or_else(
-		|error| {
-			eprintln!("{location} {error}", location = error.location());
+	if let Err(error) = result {
+		eprintln!("{location} {error}", location = error.location());
 
-			match error {
-				Error::BadUsage(_) => ExitCode::from(64),
-				Error::Io(_) | Error::Parse(_) => ExitCode::from(65),
-				Error::Runtime(_) => ExitCode::from(70),
-			}
-		},
-		|_| ExitCode::SUCCESS,
-	)
+		match error {
+			Error::Io(_) | Error::Parse(_) => std::process::exit(65),
+			Error::Runtime(_) => std::process::exit(70),
+		}
+	}
 }
 
 fn run_file(filename: &str) -> Result<(), Error> {

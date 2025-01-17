@@ -6,7 +6,6 @@ use crate::parse::ParseError;
 
 #[derive(Debug)]
 pub enum Error {
-	BadUsage(Vec<String>),
 	Io(std::io::Error),
 	Parse(ParseError),
 	Runtime(RuntimeError),
@@ -15,7 +14,6 @@ pub enum Error {
 impl Display for Error {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		match self {
-			Error::BadUsage(args) => write!(f, "Usage: {} <filename>", &args[0]),
 			Error::Io(inner) => inner.fmt(f),
 			Error::Parse(inner) => inner.fmt(f),
 			Error::Runtime(inner) => inner.fmt(f),
@@ -26,7 +24,7 @@ impl Display for Error {
 impl Locatable for Error {
 	fn location(&self) -> &Location {
 		match self {
-			Error::BadUsage(_) | Error::Io(_) => &Location { line: 0, column: 0 },
+			Error::Io(_) => &Location { line: 0, column: 0 },
 			Error::Parse(error) => error.location(),
 			Error::Runtime(error) => error.location(),
 		}
