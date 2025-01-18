@@ -15,12 +15,12 @@ impl<T: Locatable, E: Locatable> Locatable for Result<T, E> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Location {
-	pub line: usize,
-	pub column: usize,
+	pub line: u32,
+	pub column: u32,
 }
 
 impl Location {
-	pub fn new(line: usize, column: usize) -> Location {
+	pub fn new(line: u32, column: u32) -> Location {
 		Location { line, column }
 	}
 }

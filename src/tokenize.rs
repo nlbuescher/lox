@@ -281,7 +281,7 @@ impl<'a> Tokens<'a> {
 				}
 				'\t' => {
 					self.current_location.column =
-						((self.current_location.column + 3) & !0b11usize) + 1;
+						((self.current_location.column + 3) & !0b11u32) + 1;
 				}
 				_ => self.current_location.column += 1,
 			}

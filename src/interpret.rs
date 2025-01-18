@@ -37,6 +37,7 @@ impl Display for TypeKind {
 pub enum RuntimeError {
 	TypeError { location: Location, expected: TypeKind, actual: TypeKind },
 	UndefinedVariable(Box<Token>),
+	UninitializedVariable(Box<Token>),
 }
 
 impl Display for RuntimeError {
@@ -52,6 +53,10 @@ impl Display for RuntimeError {
 			RuntimeError::UndefinedVariable(name) => {
 				write!(f, "Undefined variable '{name}'", name = name.text)
 			}
+
+			RuntimeError::UninitializedVariable(name) => {
+				write!(f, "Uninitialized variable '{name}'", name = name.text)
+			}
 		}
 	}
 }
@@ -61,6 +66,7 @@ impl Locatable for RuntimeError {
 		match self {
 			RuntimeError::TypeError { location, .. } => location,
 			RuntimeError::UndefinedVariable(name) => name.location(),
+			RuntimeError::UninitializedVariable(name) => name.location(),
 		}
 	}
 }
@@ -73,7 +79,7 @@ pub struct Environment {
 #[derive(Debug)]
 pub struct Scope {
 	parent: Option<Rc<RefCell<Scope>>>,
-	values: HashMap<Box<str>, Value>,
+	values: HashMap<Box<str>, Option<Value>>,
 }
 
 impl Scope {
@@ -87,7 +93,10 @@ impl Scope {
 
 	fn get(scope: &Rc<RefCell<Scope>>, name: &Box<Token>) -> Result<Value, RuntimeError> {
 		if let Some(value) = scope.borrow().values.get(&name.text) {
-			return Ok(value.clone());
+			if let Some(value) = value {
+				return Ok(value.clone());
+			}
+			return Err(RuntimeError::UninitializedVariable(name.clone()));
 		}
 
 		if let Some(ref parent) = scope.borrow().parent {
@@ -97,7 +106,7 @@ impl Scope {
 		Err(RuntimeError::UndefinedVariable(name.clone()))
 	}
 
-	fn define(scope: &mut Rc<RefCell<Scope>>, name: &Token, value: Value) {
+	fn define(scope: &mut Rc<RefCell<Scope>>, name: &Token, value: Option<Value>) {
 		scope.borrow_mut().values.insert(name.text.clone(), value);
 	}
 
@@ -107,7 +116,7 @@ impl Scope {
 		value: Value,
 	) -> Result<(), RuntimeError> {
 		if let Some(variable) = scope.borrow_mut().values.get_mut(&name.text) {
-			*variable = value.clone();
+			*variable = Some(value);
 			return Ok(());
 		}
 
@@ -270,10 +279,10 @@ impl Environment {
 			}
 
 			Statement::VariableDeclaration { name, initializer, .. } => {
-				let value = match initializer {
-					Some(initializer) => Scope::evaluate_expression(&mut self.scope, initializer)?,
-					None => Value::Nil,
-				};
+				let value = initializer
+					.as_ref()
+					.map(|initializer| Scope::evaluate_expression(&mut self.scope, initializer))
+					.transpose()?;
 
 				Scope::define(&mut self.scope, name, value);
 

@@ -96,7 +96,7 @@ mod tests {
 
 	#[test]
 	pub fn test() {
-		let input = "{ { var a = \"420\"; var b = \"69\"; print a + b; } } print a;";
+		let input = "var a; { { var a = \"420\"; var b = \"69\"; print a + b; } } print a;";
 
 		let mut environment = Environment::new();
 
