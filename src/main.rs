@@ -2,8 +2,7 @@ use std::io::{stdin, stdout, BufRead, Write};
 
 use crate::error::Error;
 use crate::interpret::Environment;
-use crate::location::Locatable;
-use crate::parse::{Parser, Statement};
+use crate::parse::Parser;
 use crate::tokenize::Tokens;
 
 mod error;
@@ -26,7 +25,7 @@ pub fn main() {
 	};
 
 	if let Err(error) = result {
-		eprintln!("{location} {error}", location = error.location());
+		eprintln!("{error:#}");
 
 		match error {
 			Error::Io(_) | Error::Parse(_) => std::process::exit(65),
@@ -57,6 +56,8 @@ fn run_prompt() -> Result<(), Error> {
 }
 
 fn run(source: &str, environment: &mut Environment) -> Result<(), Error> {
+	let width = 7;
+
 	println!("Source:");
 	println!("{source}");
 	println!();
@@ -66,8 +67,8 @@ fn run(source: &str, environment: &mut Environment) -> Result<(), Error> {
 	println!("Tokenize:");
 	for token in tokens.clone() {
 		match token {
-			Ok(token) => println!("{location} {token}", location = token.location()),
-			Err(error) => println!("{location} {error}", location = error.location()),
+			Ok(token) => println!("{token:#width$}"),
+			Err(error) => println!("{error:#width$}"),
 		}
 	}
 	println!();
@@ -76,36 +77,13 @@ fn run(source: &str, environment: &mut Environment) -> Result<(), Error> {
 
 	println!("Parse:");
 	for statement in parser.clone() {
-		match statement {
-			Ok(statement) => match statement {
-				Statement::Block { start_location, end_location, statements } => {
-					println!("{start_location} {{");
-					for statement in statements {
-						println!("{location} {statement}", location = statement.location());
-					}
-					println!("{end_location} }}")
-				}
-				_ => println!("{location} {statement}", location = statement.location()),
-			},
-			Err(error) => {
-				println!("{location} {error}\n", location = error.location());
-				return Ok(());
-			}
-		}
+		println!("{statement:#width$}", statement = statement?);
 	}
 	println!();
 
 	println!("Interpret:");
 	for statement in parser {
-		let result = match statement {
-			Err(error) => Err(Error::Parse(error)),
-			Ok(statement) => Ok(environment.execute(&statement)?),
-		};
-
-		if let Err(error) = result {
-			println!("{location} {error}", location = error.location());
-			break;
-		}
+		environment.execute(&statement?)?;
 	}
 	println!();
 
@@ -118,12 +96,12 @@ mod tests {
 
 	#[test]
 	pub fn test() {
-		let input = "{ var a = \"420\"; var b = \"69\"; print a + b; } print a;";
+		let input = "{ { var a = \"420\"; var b = \"69\"; print a + b; } } print a;";
 
 		let mut environment = Environment::new();
 
 		if let Err(error) = run(input, &mut environment) {
-			println!("{location} {error}", location = error.location());
+			println!("{error:#}");
 		}
 	}
 }

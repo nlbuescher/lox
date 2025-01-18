@@ -27,6 +27,8 @@ impl Location {
 
 impl Display for Location {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		write!(f, "[{}:{}]", self.line, self.column)
+		let Location { line, column } = self;
+		let width = f.width().unwrap_or(0);
+		write!(f, "{:width$} ", format!("[{line}:{column}]"))
 	}
 }

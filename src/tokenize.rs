@@ -214,6 +214,9 @@ impl Locatable for Error {
 
 impl Display for Token {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+		if f.alternate() {
+			self.location().fmt(f)?;
+		}
 		match self.value {
 			Some(ref value) => {
 				write!(f, "{} '{}' {:?}", self.kind, self.text, value)
@@ -228,6 +231,9 @@ impl Display for Token {
 
 impl Display for Error {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+		if f.alternate() {
+			self.location().fmt(f)?;
+		}
 		write!(f, "{} '{}'", self.kind, self.text)
 	}
 }

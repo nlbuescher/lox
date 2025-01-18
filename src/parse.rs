@@ -1,4 +1,5 @@
 use std::fmt::{Display, Formatter};
+use std::io::{stdout, Write};
 use std::iter::Peekable;
 use std::ops::Deref;
 
@@ -16,6 +17,9 @@ pub enum ParseError {
 
 impl Display for ParseError {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+		if f.alternate() {
+			write!(f, "{location} ", location = self.location())?;
+		}
 		match self {
 			ParseError::UnexpectedToken { expected, actual } => match actual.deref() {
 				Ok(token) => write!(f, "Expected {expected} but got {token}"),
@@ -62,6 +66,9 @@ impl Locatable for Expression {
 
 impl Display for Expression {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+		if f.alternate() {
+			write!(f, "{location} ", location = self.location())?;
+		}
 		match self {
 			Expression::Assignment { name, value } => write!(f, "(assign {name} = {value})"),
 
@@ -82,34 +89,88 @@ impl Display for Expression {
 
 #[derive(Debug, Clone)]
 pub enum Statement {
-	Block { start_location: Location, end_location: Location, statements: Vec<Statement> },
-	Expression { expression: Box<Expression> },
-	Print { location: Location, expression: Box<Expression> },
-	VariableDeclaration { name: Box<Token>, initializer: Option<Box<Expression>> },
+	Block {
+		start_location: Location,
+		end_location: Location,
+		statements: Vec<Statement>,
+	},
+	Expression {
+		expression: Box<Expression>,
+	},
+	Print {
+		location: Location,
+		expression: Box<Expression>,
+	},
+	VariableDeclaration {
+		location: Location,
+		name: Box<Token>,
+		initializer: Option<Box<Expression>>,
+	},
 }
 
 impl Display for Statement {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		match self {
-			Statement::Block { statements, .. } => {
-				writeln!(f, "{{")?;
-				for statement in statements {
-					writeln!(f, "{statement}")?;
+			Statement::Block { start_location, end_location, statements, .. } => {
+				if f.alternate() {
+					start_location.fmt(f)?;
 				}
-				writeln!(f, "}}")
+				writeln!(f, "{{")?;
+				stdout().flush().unwrap();
+
+				let width = f.width().map(|it| it + 2);
+
+				for statement in statements {
+					if let Some(width) = width {
+						if f.alternate() {
+							writeln!(f, "{statement:#width$}")?;
+						}
+						else {
+							writeln!(f, "{statement:width$}")?;
+						}
+					}
+					else {
+						if f.alternate() {
+							write!(f, "{statement:#}")?;
+						}
+						else {
+							write!(f, "{statement}")?;
+						}
+					}
+				}
+
+				if f.alternate() {
+					end_location.fmt(f)?;
+				}
+				write!(f, "}}")
 			}
 
-			Statement::Expression { expression } => write!(f, "(expr {expression})"),
-
-			Statement::Print { expression, .. } => write!(f, "(print {expression})"),
-
-			Statement::VariableDeclaration { name, initializer } => match initializer {
-				Some(expression) => {
-					write!(f, "(vardecl {text} = {expression})", text = name.text)
+			Statement::Expression { expression } => {
+				if f.alternate() {
+					expression.location().fmt(f)?;
 				}
+				write!(f, "(expr {expression})")
+			}
 
-				None => write!(f, "(vardecl {text})", text = name.text),
-			},
+			Statement::Print { location, expression } => {
+				if f.alternate() {
+					location.fmt(f)?;
+				}
+				write!(f, "(print {expression})")
+			}
+
+			Statement::VariableDeclaration { location, name, initializer } => {
+				if f.alternate() {
+					location.fmt(f)?;
+				}
+				match initializer {
+					Some(expression) => {
+						write!(f, "(vardecl {text} = {expression})", text = name.text)
+					}
+
+					None => write!(f, "(vardecl {text})", text = name.text),
+				}
+			}
 		}
 	}
 }
@@ -117,7 +178,7 @@ impl Display for Statement {
 impl Locatable for Statement {
 	fn location(&self) -> &Location {
 		match self {
-			Statement::Block { start_location: location, .. } => location,
+			Statement::Block { start_location, .. } => start_location,
 			Statement::Expression { expression } => expression.location(),
 			Statement::Print { location, .. } => location,
 			Statement::VariableDeclaration { name, .. } => name.location(),
@@ -175,6 +236,7 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_variable_declaration(&mut self) -> Result<Statement> {
+		let location = self.previous.as_ref().unwrap().location().clone();
 		let name = self.expect(TokenKind::Identifier, "variable name")?;
 
 		let initializer =
@@ -183,6 +245,7 @@ impl<'a> Parser<'a> {
 		self.expect(TokenKind::Semicolon, "';' after variable declaration")?;
 
 		Ok(Statement::VariableDeclaration {
+			location,
 			name: Box::new(name),
 			initializer: initializer.map(Box::new),
 		})

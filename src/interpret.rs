@@ -41,6 +41,9 @@ pub enum RuntimeError {
 
 impl Display for RuntimeError {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+		if f.alternate() {
+			self.location().fmt(f)?;
+		}
 		match self {
 			RuntimeError::TypeError { expected, actual, .. } => {
 				write!(f, "Expected {expected} but got {actual}")
@@ -266,7 +269,7 @@ impl Environment {
 				Ok(None)
 			}
 
-			Statement::VariableDeclaration { name, initializer } => {
+			Statement::VariableDeclaration { name, initializer, .. } => {
 				let value = match initializer {
 					Some(initializer) => Scope::evaluate_expression(&mut self.scope, initializer)?,
 					None => Value::Nil,
