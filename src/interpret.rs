@@ -115,44 +115,6 @@ impl Scope {
 		Err(RuntimeError::UndefinedVariable(Box::new(name.clone())))
 	}
 
-	pub fn execute(
-		scope: &mut Rc<RefCell<Scope>>,
-		statement: &Statement,
-	) -> Result<Option<Value>, RuntimeError> {
-		match statement {
-			Statement::Block { statements, .. } => {
-				let mut inner = Rc::new(RefCell::new(Scope::with_parent(scope.clone())));
-
-				for statement in statements {
-					Scope::execute(&mut inner, statement)?;
-				}
-
-				Ok(None)
-			}
-
-			Statement::Expression { expression } => {
-				let value = Scope::evaluate_expression(scope, expression)?;
-				Ok(Some(value))
-			}
-
-			Statement::Print { expression, .. } => {
-				println!("{}", Scope::evaluate_expression(scope, expression)?.to_string());
-				Ok(None)
-			}
-
-			Statement::VariableDeclaration { name, initializer } => {
-				let value = match initializer {
-					Some(initializer) => Scope::evaluate_expression(scope, initializer)?,
-					None => Value::Nil,
-				};
-
-				Scope::define(scope, name, value);
-
-				Ok(None)
-			}
-		}
-	}
-
 	fn evaluate_expression(
 		scope: &mut Rc<RefCell<Scope>>,
 		expression: &Expression,
@@ -278,7 +240,43 @@ impl Environment {
 	}
 
 	pub fn execute(&mut self, statement: &Statement) -> Result<Option<Value>, RuntimeError> {
-		Scope::execute(&mut self.scope, statement)
+		match statement {
+			Statement::Block { statements, .. } => {
+				let previous = self.scope.clone();
+				self.scope = Rc::new(RefCell::new(Scope::with_parent(previous.clone())));
+
+				let result =
+					statements.iter().try_fold(None, |_, statement| self.execute(statement));
+
+				self.scope = previous.clone();
+
+				result
+			}
+
+			Statement::Expression { expression } => {
+				let value = Scope::evaluate_expression(&mut self.scope, expression)?;
+				Ok(Some(value))
+			}
+
+			Statement::Print { expression, .. } => {
+				println!(
+					"{}",
+					Scope::evaluate_expression(&mut self.scope, expression)?.to_string()
+				);
+				Ok(None)
+			}
+
+			Statement::VariableDeclaration { name, initializer } => {
+				let value = match initializer {
+					Some(initializer) => Scope::evaluate_expression(&mut self.scope, initializer)?,
+					None => Value::Nil,
+				};
+
+				Scope::define(&mut self.scope, name, value);
+
+				Ok(None)
+			}
+		}
 	}
 }
 
