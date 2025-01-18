@@ -82,7 +82,7 @@ impl Scope {
 		Scope { parent: Some(parent), values: HashMap::new() }
 	}
 
-	fn get(scope: &Rc<RefCell<Scope>>, name: &Token) -> Result<Value, RuntimeError> {
+	fn get(scope: &Rc<RefCell<Scope>>, name: &Box<Token>) -> Result<Value, RuntimeError> {
 		if let Some(value) = scope.borrow().values.get(&name.text) {
 			return Ok(value.clone());
 		}
@@ -91,7 +91,7 @@ impl Scope {
 			return Scope::get(parent, name);
 		}
 
-		Err(RuntimeError::UndefinedVariable(Box::new(name.clone())))
+		Err(RuntimeError::UndefinedVariable(name.clone()))
 	}
 
 	fn define(scope: &mut Rc<RefCell<Scope>>, name: &Token, value: Value) {
