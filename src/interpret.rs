@@ -321,6 +321,14 @@ impl Environment {
 
 				Ok(None)
 			}
+
+			Statement::While { condition, body, .. } => {
+				while Scope::evaluate_expression(&mut self.scope, condition)?.is_truthy() {
+					self.execute(body)?;
+				}
+
+				Ok(None)
+			}
 		}
 	}
 }

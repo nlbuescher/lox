@@ -97,18 +97,11 @@ mod tests {
 	#[test]
 	pub fn test() {
 		let input = r#"
-var a;
-{
-	if true {
-		var a = "420";
-		var b = "69";
-		print a or b;
-	}
-	else {
-		print "else";
-	}
-}
-print a;"#;
+var i = 10;		
+while i > 0 {
+	print i;
+	i = i - 1;
+}"#;
 
 		let mut environment = Environment::new();
 

@@ -113,6 +113,11 @@ pub enum Statement {
 		name: Box<Token>,
 		initializer: Option<Box<Expression>>,
 	},
+	While {
+		location: Location,
+		condition: Box<Expression>,
+		body: Box<Statement>,
+	},
 }
 
 impl Display for Statement {
@@ -217,6 +222,25 @@ impl Display for Statement {
 					None => write!(f, "(vardecl {text})", text = name.text),
 				}
 			}
+
+			Statement::While { location, condition, body } => {
+				let width = f.width().map(|it| it + 1);
+				if let Some(width) = width {
+					if f.alternate() {
+						location.fmt(f)?;
+						write!(f, "while {condition}\n{body:#width$}")
+					} else {
+						write!(f, "while {condition}\n{body:width$}")
+					}
+				} else {
+					if f.alternate() {
+						location.fmt(f)?;
+						write!(f, "while {condition}\n{body:#}")
+					} else {
+						write!(f, "while {condition}\n{body}")
+					}
+				}
+			}
 		}
 	}
 }
@@ -229,6 +253,7 @@ impl Locatable for Statement {
 			Statement::If { if_location: location, .. } => location,
 			Statement::Print { location, .. } => location,
 			Statement::VariableDeclaration { name, .. } => name.location(),
+			Statement::While { location, .. } => location,
 		}
 	}
 }
@@ -311,6 +336,10 @@ impl<'a> Parser<'a> {
 			return self.parse_print_statement();
 		}
 
+		if self.advance_if(TokenKind::While) {
+			return self.parse_while_statement();
+		}
+
 		self.parse_expression_statement()
 	}
 
@@ -331,7 +360,7 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_if_statement(&mut self) -> Result<Statement> {
-		let location = self.previous.as_ref().unwrap().location().clone();
+		let if_location = self.previous.as_ref().unwrap().location().clone();
 
 		let condition = Box::new(self.parse_expression()?);
 
@@ -358,13 +387,7 @@ impl<'a> Parser<'a> {
 			(None, None)
 		};
 
-		Ok(Statement::If {
-			if_location: location,
-			condition,
-			then_branch,
-			else_location,
-			else_branch,
-		})
+		Ok(Statement::If { if_location, condition, then_branch, else_location, else_branch })
 	}
 
 	fn parse_print_statement(&mut self) -> Result<Statement> {
@@ -372,6 +395,14 @@ impl<'a> Parser<'a> {
 		let expression = self.parse_expression()?;
 		self.expect(TokenKind::Semicolon, "';' after expression")?;
 		Ok(Statement::Print { location, expression: Box::new(expression) })
+	}
+
+	fn parse_while_statement(&mut self) -> Result<Statement> {
+		let location = self.previous.as_ref().unwrap().location().clone();
+		let condition = Box::new(self.parse_expression()?);
+		self.expect(TokenKind::LeftBrace, "'{' after while condition")?;
+		let body = Box::new(self.parse_block()?);
+		Ok(Statement::While { location, condition, body })
 	}
 
 	fn parse_expression_statement(&mut self) -> Result<Statement> {
