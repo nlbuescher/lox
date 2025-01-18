@@ -280,9 +280,31 @@ impl Environment {
 				result
 			}
 
-			Statement::Expression { expression } => {
+			Statement::Expression(expression) => {
 				let value = Scope::evaluate_expression(&mut self.scope, expression)?;
 				Ok(Some(value))
+			}
+
+			Statement::For { initializer, condition, increment, body, .. } => {
+				if let Some(initializer) = initializer {
+					self.execute(initializer)?;
+				}
+
+				while condition
+					.as_ref()
+					.map(|condition| Scope::evaluate_expression(&mut self.scope, &condition))
+					.transpose()?
+					.unwrap_or(Value::Bool(true))
+					.is_truthy()
+				{
+					self.execute(body)?;
+
+					if let Some(increment) = increment {
+						self.execute(&increment)?;
+					}
+				}
+
+				Ok(None)
 			}
 
 			Statement::If { condition, then_branch, else_branch, .. } => {

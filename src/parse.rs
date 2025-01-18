@@ -94,8 +94,13 @@ pub enum Statement {
 		end_location: Location,
 		statements: Vec<Statement>,
 	},
-	Expression {
-		expression: Box<Expression>,
+	Expression(Box<Expression>),
+	For {
+		location: Location,
+		initializer: Option<Box<Statement>>,
+		condition: Option<Box<Expression>>,
+		increment: Option<Box<Statement>>,
+		body: Box<Statement>,
 	},
 	If {
 		if_location: Location,
@@ -157,11 +162,33 @@ impl Display for Statement {
 				write!(f, "}}")
 			}
 
-			Statement::Expression { expression } => {
+			Statement::Expression(expression) => {
 				if f.alternate() {
 					expression.location().fmt(f)?;
 				}
 				write!(f, "(expr {expression})")
+			}
+
+			Statement::For { location, initializer, condition, increment, body } => {
+				let initializer = initializer.as_ref().map_or(String::new(), |it| it.to_string());
+				let condition = condition.as_ref().map_or(String::new(), |it| it.to_string());
+				let increment = increment.as_ref().map_or(String::new(), |it| it.to_string());
+
+				if let Some(width) = f.width() {
+					if f.alternate() {
+						location.fmt(f)?;
+						write!(f, "for ({initializer} ; {condition} ; {increment})\n{body:#width$}")
+					} else {
+						write!(f, "for ({initializer} ; {condition} ; {increment})\n{body:width$}")
+					}
+				} else {
+					if f.alternate() {
+						location.fmt(f)?;
+						write!(f, "for ({initializer} ; {condition} ; {increment})\n{body:#}")
+					} else {
+						write!(f, "for ({initializer} ; {condition} ; {increment})\n{body}")
+					}
+				}
 			}
 
 			Statement::If { if_location, condition, then_branch, else_location, else_branch } => {
@@ -224,8 +251,7 @@ impl Display for Statement {
 			}
 
 			Statement::While { location, condition, body } => {
-				let width = f.width().map(|it| it + 1);
-				if let Some(width) = width {
+				if let Some(width) = f.width() {
 					if f.alternate() {
 						location.fmt(f)?;
 						write!(f, "while {condition}\n{body:#width$}")
@@ -249,7 +275,8 @@ impl Locatable for Statement {
 	fn location(&self) -> &Location {
 		match self {
 			Statement::Block { start_location, .. } => start_location,
-			Statement::Expression { expression } => expression.location(),
+			Statement::Expression(expression) => expression.location(),
+			Statement::For { location, .. } => location,
 			Statement::If { if_location: location, .. } => location,
 			Statement::Print { location, .. } => location,
 			Statement::VariableDeclaration { name, .. } => name.location(),
@@ -309,23 +336,26 @@ impl<'a> Parser<'a> {
 
 	fn parse_variable_declaration(&mut self) -> Result<Statement> {
 		let location = self.previous.as_ref().unwrap().location().clone();
-		let name = self.expect(TokenKind::Identifier, "variable name")?;
+		let name = Box::new(self.expect(TokenKind::Identifier, "variable name")?);
 
-		let initializer =
-			if self.advance_if(TokenKind::Equal) { Some(self.parse_expression()?) } else { None };
+		let initializer = if self.advance_if(TokenKind::Equal) {
+			Some(Box::new(self.parse_expression()?))
+		} else {
+			None
+		};
 
 		self.expect(TokenKind::Semicolon, "';' after variable declaration")?;
 
-		Ok(Statement::VariableDeclaration {
-			location,
-			name: Box::new(name),
-			initializer: initializer.map(Box::new),
-		})
+		Ok(Statement::VariableDeclaration { location, name, initializer })
 	}
 
 	fn parse_statement(&mut self) -> Result<Statement> {
 		if self.advance_if(TokenKind::LeftBrace) {
 			return self.parse_block();
+		}
+
+		if self.advance_if(TokenKind::For) {
+			return self.parse_for_statement();
 		}
 
 		if self.advance_if(TokenKind::If) {
@@ -357,6 +387,41 @@ impl<'a> Parser<'a> {
 		let end_location = self.previous.as_ref().unwrap().location().clone();
 
 		Ok(Statement::Block { start_location, end_location, statements })
+	}
+
+	fn parse_for_statement(&mut self) -> Result<Statement> {
+		let location = self.previous.as_ref().unwrap().location().clone();
+
+		self.expect(TokenKind::LeftParen, "'(' after 'for'")?;
+
+		let initializer = if self.advance_if(TokenKind::Semicolon) {
+			None
+		} else if self.advance_if(TokenKind::Var) {
+			Some(Box::new(self.parse_variable_declaration()?))
+		} else {
+			Some(Box::new(self.parse_expression_statement()?))
+		};
+
+		let condition = if !self.check(TokenKind::Semicolon) {
+			Some(Box::new(self.parse_expression()?))
+		} else {
+			None
+		};
+
+		self.expect(TokenKind::Semicolon, "';' after for condition")?;
+
+		let increment = if !self.check(TokenKind::RightParen) {
+			Some(Box::new(Statement::Expression(Box::new(self.parse_expression()?))))
+		} else {
+			None
+		};
+
+		self.expect(TokenKind::RightParen, "')' after for clauses")?;
+		self.expect(TokenKind::LeftBrace, "block after for clauses")?;
+
+		let body = Box::new(self.parse_block()?);
+
+		Ok(Statement::For { location, initializer, condition, increment, body })
 	}
 
 	fn parse_if_statement(&mut self) -> Result<Statement> {
@@ -408,7 +473,7 @@ impl<'a> Parser<'a> {
 	fn parse_expression_statement(&mut self) -> Result<Statement> {
 		let expression = self.parse_expression()?;
 		self.expect(TokenKind::Semicolon, "';' after expression")?;
-		Ok(Statement::Expression { expression: Box::new(expression) })
+		Ok(Statement::Expression(Box::new(expression)))
 	}
 
 	fn parse_expression(&mut self) -> Result<Expression> {
@@ -646,7 +711,8 @@ impl Iterator for Parser<'_> {
 
 #[cfg(test)]
 mod tests {
-	use super::*;
+	use crate::parse::Parser;
+	use crate::tokenize::Tokens;
 
 	#[test]
 	pub fn boolean_true() {

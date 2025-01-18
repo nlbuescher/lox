@@ -97,10 +97,8 @@ mod tests {
 	#[test]
 	pub fn test() {
 		let input = r#"
-var i = 10;		
-while i > 0 {
-	print i;
-	i = i - 1;
+for (var i = 0; i < 10; i = i + 1) {		
+	print i + 1;
 }"#;
 
 		let mut environment = Environment::new();
