@@ -96,16 +96,19 @@ mod tests {
 
 	#[test]
 	pub fn test() {
-		let input = r#"var a;
+		let input = r#"
+var a;
 {
-	{
+	if true {
 		var a = "420";
 		var b = "69";
 		print a + b;
 	}
+	else {
+		print "else";
+	}
 }
-print a;
-"#;
+print a;"#;
 
 		let mut environment = Environment::new();
 

@@ -97,6 +97,13 @@ pub enum Statement {
 	Expression {
 		expression: Box<Expression>,
 	},
+	If {
+		if_location: Location,
+		condition: Box<Expression>,
+		then_branch: Box<Statement>,
+		else_location: Option<Location>,
+		else_branch: Option<Box<Statement>>,
+	},
 	Print {
 		location: Location,
 		expression: Box<Expression>,
@@ -152,6 +159,45 @@ impl Display for Statement {
 				write!(f, "(expr {expression})")
 			}
 
+			Statement::If { if_location, condition, then_branch, else_location, else_branch } => {
+				if f.alternate() {
+					if let Some(width) = f.width() {
+						if_location.fmt(f)?;
+						write!(f, "if {condition}\n{then_branch:#width$}")?;
+						if let Some(else_branch) = else_branch {
+							writeln!(f)?;
+							else_location.as_ref().unwrap().fmt(f)?;
+							write!(f, "else\n{else_branch:#width$}")?;
+						}
+					}
+					else {
+						if_location.fmt(f)?;
+						write!(f, "if {condition}\n{then_branch:#}")?;
+						if let Some(else_branch) = else_branch {
+							writeln!(f)?;
+							else_location.as_ref().unwrap().fmt(f)?;
+							write!(f, "else\n{else_branch:#}")?;
+						}
+					}
+				}
+				else {
+					if let Some(width) = f.width().map(|it| it + 1) {
+						write!(f, "if {condition}\n{then_branch:width$}")?;
+						if let Some(else_branch) = else_branch {
+							writeln!(f, "\nelse\n{else_branch:width$}")?;
+						}
+					}
+					else {
+						if_location.fmt(f)?;
+						write!(f, "if {condition}\n{then_branch}")?;
+						if let Some(else_branch) = else_branch {
+							write!(f, "\nelse\n{else_branch}")?;
+						}
+					}
+				}
+				Ok(())
+			}
+
 			Statement::Print { location, expression } => {
 				if f.alternate() {
 					location.fmt(f)?;
@@ -180,6 +226,7 @@ impl Locatable for Statement {
 		match self {
 			Statement::Block { start_location, .. } => start_location,
 			Statement::Expression { expression } => expression.location(),
+			Statement::If { if_location: location, .. } => location,
 			Statement::Print { location, .. } => location,
 			Statement::VariableDeclaration { name, .. } => name.location(),
 		}
@@ -252,15 +299,19 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_statement(&mut self) -> Result<Statement> {
+		if self.advance_if(TokenKind::LeftBrace) {
+			return self.parse_block();
+		}
+
+		if self.advance_if(TokenKind::If) {
+			return self.parse_if_statement();
+		}
+
 		if self.advance_if(TokenKind::Print) {
-			self.parse_print_statement()
+			return self.parse_print_statement();
 		}
-		else if self.advance_if(TokenKind::LeftBrace) {
-			self.parse_block()
-		}
-		else {
-			self.parse_expression_statement()
-		}
+
+		self.parse_expression_statement()
 	}
 
 	fn parse_block(&mut self) -> Result<Statement> {
@@ -277,6 +328,43 @@ impl<'a> Parser<'a> {
 		let end_location = self.previous.as_ref().unwrap().location().clone();
 
 		Ok(Statement::Block { start_location, end_location, statements })
+	}
+
+	fn parse_if_statement(&mut self) -> Result<Statement> {
+		let location = self.previous.as_ref().unwrap().location().clone();
+
+		let condition = Box::new(self.parse_expression()?);
+
+		self.expect(TokenKind::LeftBrace, "'{' after if condition")?;
+
+		let then_branch = Box::new(self.parse_block()?);
+
+		let (else_location, else_branch) = if self.advance_if(TokenKind::Else) {
+			let else_location = self.previous.as_ref().unwrap().location().clone();
+
+			let next = self
+				.expect_any(&[TokenKind::If, TokenKind::LeftBrace], "'if' or '{' after 'else'")?;
+
+			let else_branch = if next.kind == TokenKind::If {
+				Box::new(self.parse_if_statement()?)
+			}
+			else {
+				Box::new(self.parse_block()?)
+			};
+
+			(Some(else_location), Some(else_branch))
+		}
+		else {
+			(None, None)
+		};
+
+		Ok(Statement::If {
+			if_location: location,
+			condition,
+			then_branch,
+			else_location,
+			else_branch,
+		})
 	}
 
 	fn parse_print_statement(&mut self) -> Result<Statement> {
@@ -420,29 +508,35 @@ impl<'a> Parser<'a> {
 		self.tokens.peek().unwrap().as_ref()
 	}
 
-	fn check(&mut self, token_type: TokenKind) -> bool {
-		matches!(self.peek(), Ok(it) if it.kind == token_type)
+	fn check(&mut self, token_kind: TokenKind) -> bool {
+		matches!(self.peek(), Ok(it) if it.kind == token_kind
+		)
 	}
 
-	fn expect(&mut self, token_type: TokenKind, expected: &'static str) -> Result<Token> {
-		if self.check(token_type) {
-			self.advance();
-			Ok(self.previous())
+	fn expect(&mut self, token_kind: TokenKind, expected: &'static str) -> Result<Token> {
+		self.expect_any(&[token_kind], expected)
+	}
+
+	fn expect_any(&mut self, token_types: &[TokenKind], expected: &'static str) -> Result<Token> {
+		for &token_kind in token_types {
+			if self.check(token_kind) {
+				self.advance();
+				return Ok(self.previous());
+			}
 		}
-		else {
-			Err(ParseError::UnexpectedToken {
-				expected,
-				actual: Box::new(self.peek().cloned().map_err(Clone::clone)),
-			})
-		}
+
+		Err(ParseError::UnexpectedToken {
+			expected,
+			actual: Box::new(self.peek().cloned().map_err(Clone::clone)),
+		})
 	}
 
 	fn advance(&mut self) {
 		self.previous = self.tokens.next();
 	}
 
-	fn advance_if(&mut self, token_type: TokenKind) -> bool {
-		let result = self.check(token_type);
+	fn advance_if(&mut self, token_kind: TokenKind) -> bool {
+		let result = self.check(token_kind);
 
 		if result {
 			self.advance();
@@ -452,8 +546,8 @@ impl<'a> Parser<'a> {
 	}
 
 	fn advance_if_any(&mut self, token_types: &[TokenKind]) -> bool {
-		for &token_type in token_types {
-			if self.check(token_type) {
+		for &token_kind in token_types {
+			if self.check(token_kind) {
 				self.advance();
 				return true;
 			}

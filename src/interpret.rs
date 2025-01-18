@@ -270,6 +270,22 @@ impl Environment {
 				Ok(Some(value))
 			}
 
+			Statement::If { condition, then_branch, else_branch, .. } => {
+				let condition = Scope::evaluate_expression(&mut self.scope, condition)?;
+
+				if condition.is_truthy() {
+					self.execute(then_branch)?;
+					Ok(None)
+				}
+				else if let Some(else_branch) = else_branch {
+					self.execute(else_branch)?;
+					Ok(None)
+				}
+				else {
+					Ok(None)
+				}
+			}
+
 			Statement::Print { expression, .. } => {
 				println!(
 					"{}",
