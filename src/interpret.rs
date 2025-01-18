@@ -139,78 +139,93 @@ impl Scope {
 			}
 
 			Expression::Binary { left, operator, right } => {
-				let left_value = Scope::evaluate_expression(scope, left)?;
-				let right_value = Scope::evaluate_expression(scope, right)?;
+				if matches!(operator.kind, TokenKind::And | TokenKind::Or) {
+					let left_value = Scope::evaluate_expression(scope, left)?;
 
-				match operator.kind {
-					TokenKind::Greater => {
-						let left_number = left_value.as_number(left)?;
-						let right_number = right_value.as_number(right)?;
-
-						Ok(Value::Bool(left_number > right_number))
+					if operator.kind == TokenKind::Or && left_value.is_truthy() {
+						Ok(left_value)
 					}
-
-					TokenKind::GreaterEqual => {
-						let left_number = left_value.as_number(left)?;
-						let right_number = right_value.as_number(right)?;
-
-						Ok(Value::Bool(left_number >= right_number))
+					else if !left_value.is_truthy() {
+						Ok(left_value)
 					}
-
-					TokenKind::Less => {
-						let left_number = left_value.as_number(left)?;
-						let right_number = right_value.as_number(right)?;
-
-						Ok(Value::Bool(left_number < right_number))
+					else {
+						Scope::evaluate_expression(scope, right)
 					}
+				}
+				else {
+					let left_value = Scope::evaluate_expression(scope, left)?;
+					let right_value = Scope::evaluate_expression(scope, right)?;
 
-					TokenKind::LessEqual => {
-						let left_number = left_value.as_number(left)?;
-						let right_number = right_value.as_number(right)?;
-
-						Ok(Value::Bool(left_number <= right_number))
-					}
-
-					TokenKind::BangEqual => Ok(Value::Bool(left_value != right_value)),
-
-					TokenKind::EqualEqual => Ok(Value::Bool(left_value == right_value)),
-
-					TokenKind::Minus => {
-						let left_number = left_value.as_number(left)?;
-						let right_number = right_value.as_number(right)?;
-
-						Ok(Value::Number(left_number - right_number))
-					}
-
-					TokenKind::Plus => match left_value.as_number(left) {
-						Ok(left_number) => {
+					match operator.kind {
+						TokenKind::Greater => {
+							let left_number = left_value.as_number(left)?;
 							let right_number = right_value.as_number(right)?;
 
-							Ok(Value::Number(left_number + right_number))
+							Ok(Value::Bool(left_number > right_number))
 						}
-						Err(_) => {
-							let left_string = left_value.as_string(left)?;
-							let right_string = right_value.as_string(right)?;
 
-							Ok(Value::String(format!("{left_string}{right_string}").into()))
+						TokenKind::GreaterEqual => {
+							let left_number = left_value.as_number(left)?;
+							let right_number = right_value.as_number(right)?;
+
+							Ok(Value::Bool(left_number >= right_number))
 						}
-					},
 
-					TokenKind::Slash => {
-						let left_number = left_value.as_number(left)?;
-						let right_number = right_value.as_number(right)?;
+						TokenKind::Less => {
+							let left_number = left_value.as_number(left)?;
+							let right_number = right_value.as_number(right)?;
 
-						Ok(Value::Number(left_number / right_number))
+							Ok(Value::Bool(left_number < right_number))
+						}
+
+						TokenKind::LessEqual => {
+							let left_number = left_value.as_number(left)?;
+							let right_number = right_value.as_number(right)?;
+
+							Ok(Value::Bool(left_number <= right_number))
+						}
+
+						TokenKind::BangEqual => Ok(Value::Bool(left_value != right_value)),
+
+						TokenKind::EqualEqual => Ok(Value::Bool(left_value == right_value)),
+
+						TokenKind::Minus => {
+							let left_number = left_value.as_number(left)?;
+							let right_number = right_value.as_number(right)?;
+
+							Ok(Value::Number(left_number - right_number))
+						}
+
+						TokenKind::Plus => match left_value.as_number(left) {
+							Ok(left_number) => {
+								let right_number = right_value.as_number(right)?;
+
+								Ok(Value::Number(left_number + right_number))
+							}
+							Err(_) => {
+								let left_string = left_value.as_string(left)?;
+								let right_string = right_value.as_string(right)?;
+
+								Ok(Value::String(format!("{left_string}{right_string}").into()))
+							}
+						},
+
+						TokenKind::Slash => {
+							let left_number = left_value.as_number(left)?;
+							let right_number = right_value.as_number(right)?;
+
+							Ok(Value::Number(left_number / right_number))
+						}
+
+						TokenKind::Star => {
+							let left_number = left_value.as_number(left)?;
+							let right_number = right_value.as_number(right)?;
+
+							Ok(Value::Number(left_number * right_number))
+						}
+
+						it => unreachable!("Unknown operator {} evaluating binary expression!", it),
 					}
-
-					TokenKind::Star => {
-						let left_number = left_value.as_number(left)?;
-						let right_number = right_value.as_number(right)?;
-
-						Ok(Value::Number(left_number * right_number))
-					}
-
-					it => unreachable!("Unknown operator {} evaluating binary expression!", it),
 				}
 			}
 

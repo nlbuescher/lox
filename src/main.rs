@@ -102,7 +102,7 @@ var a;
 	if true {
 		var a = "420";
 		var b = "69";
-		print a + b;
+		print a or b;
 	}
 	else {
 		print "else";

@@ -385,22 +385,49 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_assignment(&mut self) -> Result<Expression> {
-		let expression = self.parse_equality()?;
+		let expression = self.parse_or()?;
 
 		if self.advance_if(TokenKind::Equal) {
 			let equals = self.previous();
 			let value = self.parse_assignment()?;
 
-			if let Expression::Variable(name) = expression {
+			return if let Expression::Variable(name) = expression {
 				Ok(Expression::Assignment { name, value: Box::new(value) })
 			}
 			else {
 				Err(ParseError::InvalidAssignment { location: equals.location().clone() })
+			};
+		}
+
+		Ok(expression)
+	}
+
+	fn parse_or(&mut self) -> Result<Expression> {
+		let mut expression = self.parse_and()?;
+
+		while self.advance_if(TokenKind::Or) {
+			expression = Expression::Binary {
+				left: Box::new(expression),
+				operator: Box::new(self.previous()),
+				right: Box::new(self.parse_and()?),
 			}
 		}
-		else {
-			Ok(expression)
+
+		Ok(expression)
+	}
+
+	fn parse_and(&mut self) -> Result<Expression> {
+		let mut expression = self.parse_equality()?;
+
+		while self.advance_if(TokenKind::And) {
+			expression = Expression::Binary {
+				left: Box::new(expression),
+				operator: Box::new(self.previous()),
+				right: Box::new(self.parse_equality()?),
+			}
 		}
+
+		Ok(expression)
 	}
 
 	fn parse_equality(&mut self) -> Result<Expression> {
