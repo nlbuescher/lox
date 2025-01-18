@@ -118,7 +118,7 @@ impl Display for Statement {
 				writeln!(f, "{{")?;
 				stdout().flush().unwrap();
 
-				let width = f.width().map(|it| it + 2);
+				let width = f.width().map(|it| it + 1);
 
 				for statement in statements {
 					if let Some(width) = width {

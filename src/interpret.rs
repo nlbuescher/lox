@@ -279,10 +279,12 @@ impl Environment {
 			}
 
 			Statement::VariableDeclaration { name, initializer, .. } => {
-				let value = initializer
-					.as_ref()
-					.map(|initializer| Scope::evaluate_expression(&mut self.scope, initializer))
-					.transpose()?;
+				let value = match initializer {
+					None => None,
+					Some(ref expression) => {
+						Some(Scope::evaluate_expression(&mut self.scope, expression)?)
+					}
+				};
 
 				Scope::define(&mut self.scope, name, value);
 
