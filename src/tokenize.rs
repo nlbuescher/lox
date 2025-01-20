@@ -112,7 +112,11 @@ impl<'a> Tokens<'a> {
 }
 
 impl Token {
-	fn with_text(location: Location, kind: TokenKind, text: impl Into<Box<str>>) -> Self {
+	pub(crate) fn with_text(
+		location: Location,
+		kind: TokenKind,
+		text: impl Into<Box<str>>,
+	) -> Self {
 		Token { location, kind, text: text.into(), value: None }
 	}
 

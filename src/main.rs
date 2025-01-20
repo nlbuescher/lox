@@ -104,7 +104,7 @@ mod tests {
 for (var i = 0; i < 10; i = i + 1) {		
 	print i;
 }
-print i;"#;
+print clock();"#;
 
 		let mut environment = Environment::new();
 

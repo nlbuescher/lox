@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
+use std::ops::Deref;
 use std::rc::Rc;
 
 use crate::location::{Locatable, Location};
@@ -10,12 +11,41 @@ use crate::value::Value;
 
 pub type Result<T> = std::result::Result<T, RuntimeError>;
 
+#[derive(Clone)]
+pub struct Callable {
+	arguments: Box<[Box<str>]>,
+	body: Rc<dyn Fn(&mut Rc<RefCell<Scope>>, Vec<Value>) -> Result<Option<Value>>>,
+}
+
+impl Callable {
+	fn arity(&self) -> usize {
+		self.arguments.len()
+	}
+
+	fn call(&self, scope: &mut Rc<RefCell<Scope>>, arguments: Vec<Value>) -> Result<Option<Value>> {
+		self.body.deref()(scope, arguments)
+	}
+}
+
+impl Debug for Callable {
+	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+		f.debug_struct("Callable").field("arguments", &self.arguments).finish()
+	}
+}
+
+impl PartialEq for Callable {
+	fn eq(&self, _other: &Self) -> bool {
+		false
+	}
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum TypeKind {
 	Nothing,
 	Bool,
 	Number,
 	String,
+	Callable,
 }
 
 impl TypeKind {
@@ -25,6 +55,7 @@ impl TypeKind {
 			TypeKind::Bool => "Bool",
 			TypeKind::Number => "Number",
 			TypeKind::String => "String",
+			TypeKind::Callable => "Callable",
 		}
 	}
 }
@@ -40,6 +71,9 @@ pub enum RuntimeError {
 	TypeError { location: Location, expected: TypeKind, actual: TypeKind },
 	UndefinedVariable(Box<Token>),
 	UninitializedVariable(Box<Token>),
+	UnexpectedVoid(Location),
+	NotCallable(Location),
+	UnexpectedNumberOfArguments { location: Location, expected: usize, actual: usize },
 }
 
 impl Display for RuntimeError {
@@ -59,6 +93,14 @@ impl Display for RuntimeError {
 			RuntimeError::UninitializedVariable(name) => {
 				write!(f, "Uninitialized variable '{name}'", name = name.text)
 			}
+
+			RuntimeError::UnexpectedVoid(_) => write!(f, "Unexpected void"),
+
+			RuntimeError::NotCallable(_) => write!(f, "Can only call functions and classes"),
+
+			RuntimeError::UnexpectedNumberOfArguments { expected, actual, .. } => {
+				write!(f, "Expected {expected} arguments but got {actual}")
+			}
 		}
 	}
 }
@@ -69,6 +111,9 @@ impl Locatable for RuntimeError {
 			RuntimeError::TypeError { location, .. } => location,
 			RuntimeError::UndefinedVariable(name) => name.location(),
 			RuntimeError::UninitializedVariable(name) => name.location(),
+			RuntimeError::UnexpectedVoid(location) => location,
+			RuntimeError::NotCallable(location) => location,
+			RuntimeError::UnexpectedNumberOfArguments { location, .. } => location,
 		}
 	}
 }
@@ -125,83 +170,89 @@ impl Scope {
 		Err(RuntimeError::UndefinedVariable(Box::new(name.clone())))
 	}
 
-	fn evaluate(scope: &mut Rc<RefCell<Scope>>, expression: &Expression) -> Result<Value> {
+	fn evaluate(scope: &mut Rc<RefCell<Scope>>, expression: &Expression) -> Result<Option<Value>> {
 		match expression {
 			Expression::Assignment { name, value } => {
-				let value = Scope::evaluate(scope, value)?;
+				let value = Scope::evaluate(scope, value)?
+					.ok_or_else(|| RuntimeError::UnexpectedVoid(value.location().clone()))?;
 				Scope::assign(scope, name, value.clone())?;
-				Ok(value)
+				Ok(Some(value))
 			}
 
 			Expression::Binary { left, operator, right } => {
 				if matches!(operator.kind, TokenKind::And | TokenKind::Or) {
-					let left_value = Scope::evaluate(scope, left)?;
+					let left_value = Scope::evaluate(scope, left)?
+						.ok_or_else(|| RuntimeError::UnexpectedVoid(left.location().clone()))?;
 
 					if operator.kind == TokenKind::Or && left_value.is_truthy() {
-						Ok(left_value)
+						Ok(Some(left_value))
 					}
 					else if !left_value.is_truthy() {
-						Ok(left_value)
+						Ok(Some(left_value))
 					}
 					else {
 						Scope::evaluate(scope, right)
 					}
 				}
 				else {
-					let left_value = Scope::evaluate(scope, left)?;
-					let right_value = Scope::evaluate(scope, right)?;
+					let left_value = Scope::evaluate(scope, left)?
+						.ok_or_else(|| RuntimeError::UnexpectedVoid(left.location().clone()))?;
+					let right_value = Scope::evaluate(scope, right)?
+						.ok_or_else(|| RuntimeError::UnexpectedVoid(right.location().clone()))?;
 
 					match operator.kind {
 						TokenKind::Greater => {
 							let left_number = left_value.as_number(left)?;
 							let right_number = right_value.as_number(right)?;
 
-							Ok(Value::Bool(left_number > right_number))
+							Ok(Some(Value::Bool(left_number > right_number)))
 						}
 
 						TokenKind::GreaterEqual => {
 							let left_number = left_value.as_number(left)?;
 							let right_number = right_value.as_number(right)?;
 
-							Ok(Value::Bool(left_number >= right_number))
+							Ok(Some(Value::Bool(left_number >= right_number)))
 						}
 
 						TokenKind::Less => {
 							let left_number = left_value.as_number(left)?;
 							let right_number = right_value.as_number(right)?;
 
-							Ok(Value::Bool(left_number < right_number))
+							Ok(Some(Value::Bool(left_number < right_number)))
 						}
 
 						TokenKind::LessEqual => {
 							let left_number = left_value.as_number(left)?;
 							let right_number = right_value.as_number(right)?;
 
-							Ok(Value::Bool(left_number <= right_number))
+							Ok(Some(Value::Bool(left_number <= right_number)))
 						}
 
-						TokenKind::BangEqual => Ok(Value::Bool(left_value != right_value)),
+						TokenKind::BangEqual => Ok(Some(Value::Bool(left_value != right_value))),
 
-						TokenKind::EqualEqual => Ok(Value::Bool(left_value == right_value)),
+						TokenKind::EqualEqual => Ok(Some(Value::Bool(left_value == right_value))),
 
 						TokenKind::Minus => {
 							let left_number = left_value.as_number(left)?;
 							let right_number = right_value.as_number(right)?;
 
-							Ok(Value::Number(left_number - right_number))
+							Ok(Some(Value::Number(left_number - right_number)))
 						}
 
 						TokenKind::Plus => match left_value.as_number(left) {
 							Ok(left_number) => {
 								let right_number = right_value.as_number(right)?;
 
-								Ok(Value::Number(left_number + right_number))
+								Ok(Some(Value::Number(left_number + right_number)))
 							}
 							Err(_) => {
 								let left_string = left_value.as_string(left)?;
 								let right_string = right_value.as_string(right)?;
 
-								Ok(Value::String(format!("{left_string}{right_string}").into()))
+								Ok(Some(Value::String(
+									format!("{left_string}{right_string}").into(),
+								)))
 							}
 						},
 
@@ -209,14 +260,14 @@ impl Scope {
 							let left_number = left_value.as_number(left)?;
 							let right_number = right_value.as_number(right)?;
 
-							Ok(Value::Number(left_number / right_number))
+							Ok(Some(Value::Number(left_number / right_number)))
 						}
 
 						TokenKind::Star => {
 							let left_number = left_value.as_number(left)?;
 							let right_number = right_value.as_number(right)?;
 
-							Ok(Value::Number(left_number * right_number))
+							Ok(Some(Value::Number(left_number * right_number)))
 						}
 
 						it => unreachable!("Unknown operator {} evaluating binary expression!", it),
@@ -224,41 +275,92 @@ impl Scope {
 				}
 			}
 
+			Expression::Call { callee, arguments_start_location, arguments, .. } => {
+				let callee = Scope::evaluate(scope, callee)?
+					.ok_or_else(|| RuntimeError::UnexpectedVoid(callee.location().clone()))?;
+
+				let arguments = arguments
+					.iter()
+					.map(|argument| {
+						Scope::evaluate(scope, argument).and_then(|value| {
+							value.ok_or_else(|| {
+								RuntimeError::UnexpectedVoid(argument.location().clone())
+							})
+						})
+					})
+					.collect::<Result<Vec<Value>>>()?;
+
+				if let Value::Callable(callable) = callee {
+					if arguments.len() == callable.arity() {
+						callable.call(scope, arguments)
+					} else {
+						Err(RuntimeError::UnexpectedNumberOfArguments {
+							location: arguments_start_location.clone(),
+							expected: callable.arity(),
+							actual: arguments.len(),
+						})
+					}
+				} else {
+					Err(RuntimeError::NotCallable(arguments_start_location.clone()))
+				}
+			}
+
 			Expression::Grouping(expression) => Scope::evaluate(scope, expression),
 
 			Expression::Literal(token) => match token.kind {
-				TokenKind::Nil => Ok(Value::Nil),
-				TokenKind::True => Ok(Value::Bool(true)),
-				TokenKind::False => Ok(Value::Bool(false)),
-				TokenKind::Number => Ok(token.value.clone().unwrap()),
-				TokenKind::String => Ok(token.value.clone().unwrap()),
+				TokenKind::Nil => Ok(Some(Value::Nil)),
+				TokenKind::True => Ok(Some(Value::Bool(true))),
+				TokenKind::False => Ok(Some(Value::Bool(false))),
+				TokenKind::Number => Ok(Some(token.value.clone().unwrap())),
+				TokenKind::String => Ok(Some(token.value.clone().unwrap())),
 				it => unreachable!("Unknown token {} evaluating literal!", it),
 			},
 
 			Expression::Unary { operator, right } => {
-				let right_value = Scope::evaluate(scope, right)?;
+				let right_value = Scope::evaluate(scope, right)?
+					.ok_or_else(|| RuntimeError::UnexpectedVoid(right.location().clone()))?;
 
 				match operator.kind {
-					TokenKind::Bang => Ok(Value::Bool(!right_value.is_truthy())),
+					TokenKind::Bang => Ok(Some(Value::Bool(!right_value.is_truthy()))),
 
 					TokenKind::Minus => {
 						let right_number = right_value.as_number(right)?;
 
-						Ok(Value::Number(-right_number))
+						Ok(Some(Value::Number(-right_number)))
 					}
 
 					it => unreachable!("Unknown operator {} evaluating unary expression!", it),
 				}
 			}
 
-			Expression::Variable(name) => Scope::get(scope, name),
+			Expression::Variable(name) => Scope::get(scope, name).map(Some),
 		}
 	}
 }
 
 impl Environment {
 	pub fn new() -> Self {
-		Environment { scope: Rc::new(RefCell::new(Scope::new())) }
+		let mut environment = Environment { scope: Rc::new(RefCell::new(Scope::new())) };
+
+		Scope::define(
+			&mut environment.scope,
+			&Token::with_text(Location::new(0, 0), TokenKind::Identifier, "clock"),
+			Some(Value::Callable(Callable {
+				arguments: Box::new([]),
+				body: Rc::new(|_, _| {
+					use std::time::{SystemTime, UNIX_EPOCH};
+
+					let now = SystemTime::now();
+					let duration = now.duration_since(UNIX_EPOCH).unwrap();
+					let seconds = duration.as_secs() as f64;
+					let nanos = duration.subsec_nanos() as f64 / 1_000_000_000.0;
+
+					Ok(Some(Value::Number(seconds + nanos)))
+				}),
+			})),
+		);
+
+		environment
 	}
 
 	pub fn execute(&mut self, statement: &Statement) -> Result<Option<Value>> {
@@ -276,7 +378,8 @@ impl Environment {
 			}
 
 			Statement::Expression(expression) => {
-				let value = Scope::evaluate(&mut self.scope, expression)?;
+				let value = Scope::evaluate(&mut self.scope, expression)?
+					.ok_or_else(|| RuntimeError::UnexpectedVoid(expression.location().clone()))?;
 				Ok(Some(value))
 			}
 
@@ -292,7 +395,13 @@ impl Environment {
 					.and_then(|_| {
 						while condition
 							.as_ref()
-							.map(|condition| Scope::evaluate(&mut self.scope, condition))
+							.map(|condition| {
+								Scope::evaluate(&mut self.scope, condition).and_then(|value| {
+									value.ok_or_else(|| {
+										RuntimeError::UnexpectedVoid(condition.location().clone())
+									})
+								})
+							})
 							.transpose()?
 							.unwrap_or(Value::Bool(true))
 							.is_truthy()
@@ -313,7 +422,8 @@ impl Environment {
 			}
 
 			Statement::If { condition, then_branch, else_branch, .. } => {
-				let condition = Scope::evaluate(&mut self.scope, condition)?;
+				let condition = Scope::evaluate(&mut self.scope, condition)?
+					.ok_or_else(|| RuntimeError::UnexpectedVoid(condition.location().clone()))?;
 
 				if condition.is_truthy() {
 					self.execute(then_branch)?;
@@ -328,14 +438,23 @@ impl Environment {
 			}
 
 			Statement::Print { expression, .. } => {
-				println!("{}", Scope::evaluate(&mut self.scope, expression)?.to_string());
+				println!(
+					"{}",
+					Scope::evaluate(&mut self.scope, expression)?
+						.ok_or_else(|| RuntimeError::UnexpectedVoid(expression.location().clone()))?
+						.to_string()
+				);
 				Ok(None)
 			}
 
 			Statement::VariableDeclaration { name, initializer, .. } => {
 				let value = match initializer {
 					None => None,
-					Some(ref expression) => Some(Scope::evaluate(&mut self.scope, expression)?),
+					Some(ref expression) => {
+						Some(Scope::evaluate(&mut self.scope, expression)?.ok_or_else(|| {
+							RuntimeError::UnexpectedVoid(expression.location().clone())
+						})?)
+					}
 				};
 
 				Scope::define(&mut self.scope, name, value);
@@ -344,7 +463,10 @@ impl Environment {
 			}
 
 			Statement::While { condition, body, .. } => {
-				while Scope::evaluate(&mut self.scope, condition)?.is_truthy() {
+				while Scope::evaluate(&mut self.scope, condition)?
+					.ok_or_else(|| RuntimeError::UnexpectedVoid(condition.location().clone()))?
+					.is_truthy()
+				{
 					self.execute(body)?;
 				}
 
@@ -361,6 +483,7 @@ impl Value {
 			Value::Bool(_) => TypeKind::Bool,
 			Value::Number(_) => TypeKind::Number,
 			Value::String(_) => TypeKind::String,
+			Value::Callable(_) => TypeKind::Callable,
 		}
 	}
 
@@ -370,6 +493,7 @@ impl Value {
 			Value::Bool(b) => *b,
 			Value::Number(n) => *n != 0.0,
 			Value::String(s) => !s.is_empty(),
+			Value::Callable(_) => true,
 		}
 	}
 
@@ -401,6 +525,7 @@ impl Value {
 			Value::Bool(b) => b.to_string(),
 			Value::Number(n) => n.to_string(),
 			Value::String(s) => s.to_string(),
+			Value::Callable(_) => "<callable>".to_string(),
 		}
 	}
 }
