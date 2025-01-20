@@ -28,6 +28,6 @@ impl Location {
 impl Display for Location {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		let Location { line, column } = self;
-		write!(f, "[{line:2}:{column:<2}]")
+		write!(f, "[{line:>3}:{column:<3}]") // 3 characters gets us up to 999, which is a good default
 	}
 }

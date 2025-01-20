@@ -43,7 +43,7 @@ pub enum RuntimeError {
 impl Display for RuntimeError {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		if f.alternate() {
-			self.location().fmt(f)?;
+			write!(f, "{location} ", location = self.location())?;
 		}
 		match self {
 			RuntimeError::TypeError { expected, actual, .. } => {
@@ -286,25 +286,35 @@ impl Environment {
 			}
 
 			Statement::For { initializer, condition, increment, body, .. } => {
-				if let Some(initializer) = initializer {
-					self.execute(initializer)?;
-				}
+				let previous = self.scope.clone();
 
-				while condition
+				self.scope = Rc::new(RefCell::new(Scope::with_parent(previous.clone())));
+
+				let result = initializer
 					.as_ref()
-					.map(|condition| Scope::evaluate_expression(&mut self.scope, &condition))
-					.transpose()?
-					.unwrap_or(Value::Bool(true))
-					.is_truthy()
-				{
-					self.execute(body)?;
+					.map(|initializer| self.execute(initializer))
+					.transpose()
+					.and_then(|_| {
+						while condition
+							.as_ref()
+							.map(|condition| Scope::evaluate_expression(&mut self.scope, condition))
+							.transpose()?
+							.unwrap_or(Value::Bool(true))
+							.is_truthy()
+						{
+							self.execute(body)?;
 
-					if let Some(increment) = increment {
-						self.execute(&increment)?;
-					}
-				}
+							if let Some(increment) = increment {
+								self.execute(&increment)?;
+							}
+						}
 
-				Ok(None)
+						Ok(())
+					});
+
+				self.scope = previous.clone();
+
+				result.map(|_| None)
 			}
 
 			Statement::If { condition, then_branch, else_branch, .. } => {

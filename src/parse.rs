@@ -229,15 +229,17 @@ impl Display for Statement {
 			}
 
 			Statement::VariableDeclaration { location, name, initializer } => {
+				let Token { text, .. } = name.deref();
+
 				if f.alternate() {
 					write!(f, "{location} {PAD:width$}")?;
 				}
 				match initializer {
 					Some(expression) => {
-						write!(f, "(vardecl {text} = {expression})", text = name.text)
+						write!(f, "(vardecl {text} = {expression})")
 					}
 
-					None => write!(f, "(vardecl {text})", text = name.text),
+					None => write!(f, "(vardecl {text})"),
 				}
 			}
 
