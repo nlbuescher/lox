@@ -13,11 +13,11 @@ mod tokenize;
 mod value;
 
 pub fn main() {
-	let args = std::env::args().collect::<Vec<String>>();
+	let args = std::env::args().map(Box::from).collect::<Vec<Box<str>>>();
 
 	let result = match args.len() {
-		1 => run_prompt(),
-		2 => run_file(&args[1]),
+		1 => run_prompt(false),
+		2 => run_file(&args[1], false),
 		_ => {
 			eprintln!("Usage: {} <filename>", args[0]);
 			std::process::exit(64)
@@ -34,20 +34,20 @@ pub fn main() {
 	}
 }
 
-fn run_file(filename: &str) -> Result<(), Error> {
+fn run_file(filename: &str, verbose: bool) -> Result<(), Error> {
 	let source = std::fs::read_to_string(filename)?;
-	let mut interpreter = Environment::new();
-	run(&source, &mut interpreter)
+	let mut environment = Environment::new();
+	run(&source, &mut environment, verbose)
 }
 
-fn run_prompt() -> Result<(), Error> {
+fn run_prompt(verbose: bool) -> Result<(), Error> {
 	let mut environment = Environment::new();
 
 	print!("> ");
 	stdout().flush()?;
 
 	for line in stdin().lock().lines() {
-		run(&line?, &mut environment)?;
+		run(&line?, &mut environment, verbose)?;
 		print!("> ");
 		stdout().flush()?;
 	}
@@ -55,37 +55,43 @@ fn run_prompt() -> Result<(), Error> {
 	Ok(())
 }
 
-fn run(source: &str, environment: &mut Environment) -> Result<(), Error> {
-	let width = 7;
+fn run(source: &str, environment: &mut Environment, verbose: bool) -> Result<(), Error> {
+	const WIDTH: usize = 8;
 
-	println!("Source:");
-	println!("{source}");
-	println!();
+	if verbose {
+		println!("Source:");
+		println!("{source}");
+		println!();
+	}
 
 	let tokens = Tokens::new(source);
 
-	println!("Tokenize:");
-	for token in tokens.clone() {
-		match token {
-			Ok(token) => println!("{token:#width$}"),
-			Err(error) => println!("{error:#width$}"),
+	if verbose {
+		println!("Tokenize:");
+		for token in tokens.clone() {
+			match token {
+				Ok(token) => println!("{token:#WIDTH$}"),
+				Err(error) => println!("{error:#WIDTH$}"),
+			}
 		}
+		println!();
 	}
-	println!();
 
 	let parser = Parser::new(tokens);
 
-	println!("Parse:");
-	for statement in parser.clone() {
-		println!("{statement:#width$}", statement = statement?);
-	}
-	println!();
+	if verbose {
+		println!("Parse:");
+		for statement in parser.clone() {
+			println!("{statement:#WIDTH$}", statement = statement?);
+		}
+		println!();
 
-	println!("Interpret:");
+		println!("Interpret:");
+	}
+
 	for statement in parser {
 		environment.execute(&statement?)?;
 	}
-	println!();
 
 	Ok(())
 }
@@ -103,7 +109,7 @@ for (var i = 0; i < 10; i = i + 1) {
 
 		let mut environment = Environment::new();
 
-		if let Err(error) = run(input, &mut environment) {
+		if let Err(error) = run(input, &mut environment, true) {
 			println!("{error:#}");
 		}
 	}
