@@ -73,16 +73,26 @@ impl Display for Expression {
 			Expression::Assignment { name, value } => write!(f, "(assign {name} = {value})"),
 
 			Expression::Binary { left, operator, right } => {
-				write!(f, "({text} {left} {right})", text = operator.text)
+				let Token { text, .. } = operator.deref();
+				write!(f, "({text} {left} {right})")
 			}
 
-			Expression::Literal(token) => write!(f, "{text}", text = token.text),
+			Expression::Literal(token) => {
+				let Token { text, .. } = token.deref();
+				write!(f, "{text}")
+			}
 
 			Expression::Grouping(expression) => write!(f, "(group {expression})"),
 
-			Expression::Unary { operator, right } => write!(f, "({operator} {right})"),
+			Expression::Unary { operator, right } => {
+				let Token { text, .. } = operator.deref();
+				write!(f, "({text} {right})")
+			}
 
-			Expression::Variable(token) => write!(f, "(var {text})", text = token.text),
+			Expression::Variable(token) => {
+				let Token { text, .. } = token.deref();
+				write!(f, "(var {text})")
+			}
 		}
 	}
 }
@@ -106,8 +116,7 @@ pub enum Statement {
 		if_location: Location,
 		condition: Box<Expression>,
 		then_branch: Box<Statement>,
-		else_location: Option<Location>,
-		else_branch: Option<Box<Statement>>,
+		else_branch: Option<(Location, Box<Statement>)>,
 	},
 	Print {
 		location: Location,
@@ -127,18 +136,21 @@ pub enum Statement {
 
 impl Display for Statement {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+		const PAD: &str = "";
+
+		let width = f.width().unwrap_or(0);
+
 		match self {
 			Statement::Block { start_location, end_location, statements, .. } => {
 				if f.alternate() {
-					start_location.fmt(f)?;
+					write!(f, "{start_location}{PAD:width$} ")?;
 				}
 				writeln!(f, "{{")?;
 				stdout().flush().unwrap();
 
-				let width = f.width().map(|it| it + 1);
-
-				for statement in statements {
-					if let Some(width) = width {
+				{
+					let width = width + 1;
+					for statement in statements {
 						if f.alternate() {
 							writeln!(f, "{statement:#width$}")?;
 						}
@@ -146,25 +158,17 @@ impl Display for Statement {
 							writeln!(f, "{statement:width$}")?;
 						}
 					}
-					else {
-						if f.alternate() {
-							write!(f, "{statement:#}")?;
-						}
-						else {
-							write!(f, "{statement}")?;
-						}
-					}
 				}
 
 				if f.alternate() {
-					end_location.fmt(f)?;
+					write!(f, "{end_location}{PAD:width$} ")?;
 				}
 				write!(f, "}}")
 			}
 
 			Statement::Expression(expression) => {
 				if f.alternate() {
-					expression.location().fmt(f)?;
+					write!(f, "{location}{PAD:width$} ", location = expression.location())?;
 				}
 				write!(f, "(expr {expression})")
 			}
@@ -174,57 +178,44 @@ impl Display for Statement {
 				let condition = condition.as_ref().map_or(String::new(), |it| it.to_string());
 				let increment = increment.as_ref().map_or(String::new(), |it| it.to_string());
 
-				if let Some(width) = f.width() {
-					if f.alternate() {
-						location.fmt(f)?;
-						write!(f, "for ({initializer} ; {condition} ; {increment})\n{body:#width$}")
-					} else {
-						write!(f, "for ({initializer} ; {condition} ; {increment})\n{body:width$}")
-					}
+				if f.alternate() {
+					write!(f, "{location}{PAD:width$} ")?;
+				}
+
+				writeln!(f, "for ({initializer} ; {condition} ; {increment})")?;
+
+				if f.alternate() {
+					write!(f, "{body:#width$}")
 				} else {
-					if f.alternate() {
-						location.fmt(f)?;
-						write!(f, "for ({initializer} ; {condition} ; {increment})\n{body:#}")
-					} else {
-						write!(f, "for ({initializer} ; {condition} ; {increment})\n{body}")
-					}
+					write!(f, "{body:width$}")
 				}
 			}
 
-			Statement::If { if_location, condition, then_branch, else_location, else_branch } => {
+			Statement::If { if_location, condition, then_branch, else_branch } => {
 				if f.alternate() {
-					if let Some(width) = f.width() {
-						if_location.fmt(f)?;
-						write!(f, "if {condition}\n{then_branch:#width$}")?;
-						if let Some(else_branch) = else_branch {
-							writeln!(f)?;
-							else_location.as_ref().unwrap().fmt(f)?;
-							write!(f, "else\n{else_branch:#width$}")?;
-						}
-					}
-					else {
-						if_location.fmt(f)?;
-						write!(f, "if {condition}\n{then_branch:#}")?;
-						if let Some(else_branch) = else_branch {
-							writeln!(f)?;
-							else_location.as_ref().unwrap().fmt(f)?;
-							write!(f, "else\n{else_branch:#}")?;
-						}
-					}
+					write!(f, "{if_location}{PAD:width$} ")?;
 				}
-				else {
-					if let Some(width) = f.width().map(|it| it + 1) {
-						write!(f, "if {condition}\n{then_branch:width$}")?;
-						if let Some(else_branch) = else_branch {
-							writeln!(f, "\nelse\n{else_branch:width$}")?;
-						}
+
+				writeln!(f, "if {condition}")?;
+
+				if f.alternate() {
+					write!(f, "{then_branch:#width$}")?;
+				} else {
+					write!(f, "{then_branch:width$}")?;
+				}
+
+				if let Some((else_location, else_branch)) = else_branch {
+					writeln!(f)?;
+					if f.alternate() {
+						write!(f, "{else_location}{PAD:width$} ")?;
 					}
-					else {
-						if_location.fmt(f)?;
-						write!(f, "if {condition}\n{then_branch}")?;
-						if let Some(else_branch) = else_branch {
-							write!(f, "\nelse\n{else_branch}")?;
-						}
+
+					writeln!(f, "else")?;
+
+					if f.alternate() {
+						write!(f, "{else_branch:#width$}")?;
+					} else {
+						write!(f, "else\n{else_branch:width$}")?;
 					}
 				}
 				Ok(())
@@ -232,14 +223,14 @@ impl Display for Statement {
 
 			Statement::Print { location, expression } => {
 				if f.alternate() {
-					location.fmt(f)?;
+					write!(f, "{location} {PAD:width$}")?;
 				}
 				write!(f, "(print {expression})")
 			}
 
 			Statement::VariableDeclaration { location, name, initializer } => {
 				if f.alternate() {
-					location.fmt(f)?;
+					write!(f, "{location} {PAD:width$}")?;
 				}
 				match initializer {
 					Some(expression) => {
@@ -251,20 +242,16 @@ impl Display for Statement {
 			}
 
 			Statement::While { location, condition, body } => {
-				if let Some(width) = f.width() {
-					if f.alternate() {
-						location.fmt(f)?;
-						write!(f, "while {condition}\n{body:#width$}")
-					} else {
-						write!(f, "while {condition}\n{body:width$}")
-					}
+				if f.alternate() {
+					write!(f, "{location} {PAD:width$}")?;
+				}
+
+				writeln!(f, "while {condition}")?;
+
+				if f.alternate() {
+					write!(f, "{body:#width$}")
 				} else {
-					if f.alternate() {
-						location.fmt(f)?;
-						write!(f, "while {condition}\n{body:#}")
-					} else {
-						write!(f, "while {condition}\n{body}")
-					}
+					write!(f, "{body:width$}")
 				}
 			}
 		}
@@ -433,7 +420,7 @@ impl<'a> Parser<'a> {
 
 		let then_branch = Box::new(self.parse_block()?);
 
-		let (else_location, else_branch) = if self.advance_if(TokenKind::Else) {
+		let else_branch = if self.advance_if(TokenKind::Else) {
 			let else_location = self.previous.as_ref().unwrap().location().clone();
 
 			let next = self
@@ -446,13 +433,13 @@ impl<'a> Parser<'a> {
 				Box::new(self.parse_block()?)
 			};
 
-			(Some(else_location), Some(else_branch))
+			Some((else_location, else_branch))
 		}
 		else {
-			(None, None)
+			None
 		};
 
-		Ok(Statement::If { if_location, condition, then_branch, else_location, else_branch })
+		Ok(Statement::If { if_location, condition, then_branch, else_branch })
 	}
 
 	fn parse_print_statement(&mut self) -> Result<Statement> {

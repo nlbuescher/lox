@@ -313,8 +313,7 @@ impl Environment {
 				if condition.is_truthy() {
 					self.execute(then_branch)?;
 					Ok(None)
-				}
-				else if let Some(else_branch) = else_branch {
+				} else if let Some((_, else_branch)) = else_branch {
 					self.execute(else_branch)?;
 					Ok(None)
 				}

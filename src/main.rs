@@ -56,8 +56,6 @@ fn run_prompt(verbose: bool) -> Result<(), Error> {
 }
 
 fn run(source: &str, environment: &mut Environment, verbose: bool) -> Result<(), Error> {
-	const WIDTH: usize = 8;
-
 	if verbose {
 		println!("Source:");
 		println!("{source}");
@@ -70,8 +68,8 @@ fn run(source: &str, environment: &mut Environment, verbose: bool) -> Result<(),
 		println!("Tokenize:");
 		for token in tokens.clone() {
 			match token {
-				Ok(token) => println!("{token:#WIDTH$}"),
-				Err(error) => println!("{error:#WIDTH$}"),
+				Ok(token) => println!("{token:#}"),
+				Err(error) => println!("{error:#}"),
 			}
 		}
 		println!();
@@ -82,7 +80,7 @@ fn run(source: &str, environment: &mut Environment, verbose: bool) -> Result<(),
 	if verbose {
 		println!("Parse:");
 		for statement in parser.clone() {
-			println!("{statement:#WIDTH$}", statement = statement?);
+			println!("{statement:#}", statement = statement?);
 		}
 		println!();
 
