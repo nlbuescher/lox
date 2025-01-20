@@ -8,6 +8,8 @@ use crate::parse::{Expression, Statement};
 use crate::tokenize::{Token, TokenKind};
 use crate::value::Value;
 
+pub type Result<T> = std::result::Result<T, RuntimeError>;
+
 #[derive(Debug, Clone, Copy)]
 pub enum TypeKind {
 	Nothing,
@@ -91,7 +93,7 @@ impl Scope {
 		Scope { parent: Some(parent), values: HashMap::new() }
 	}
 
-	fn get(scope: &Rc<RefCell<Scope>>, name: &Box<Token>) -> Result<Value, RuntimeError> {
+	fn get(scope: &Rc<RefCell<Scope>>, name: &Box<Token>) -> Result<Value> {
 		if let Some(value) = scope.borrow().values.get(&name.text) {
 			if let Some(value) = value {
 				return Ok(value.clone());
@@ -110,11 +112,7 @@ impl Scope {
 		scope.borrow_mut().values.insert(name.text.clone(), value);
 	}
 
-	fn assign(
-		scope: &mut Rc<RefCell<Self>>,
-		name: &Token,
-		value: Value,
-	) -> Result<(), RuntimeError> {
+	fn assign(scope: &mut Rc<RefCell<Self>>, name: &Token, value: Value) -> Result<()> {
 		if let Some(variable) = scope.borrow_mut().values.get_mut(&name.text) {
 			*variable = Some(value);
 			return Ok(());
@@ -127,20 +125,17 @@ impl Scope {
 		Err(RuntimeError::UndefinedVariable(Box::new(name.clone())))
 	}
 
-	fn evaluate_expression(
-		scope: &mut Rc<RefCell<Scope>>,
-		expression: &Expression,
-	) -> Result<Value, RuntimeError> {
+	fn evaluate(scope: &mut Rc<RefCell<Scope>>, expression: &Expression) -> Result<Value> {
 		match expression {
 			Expression::Assignment { name, value } => {
-				let value = Scope::evaluate_expression(scope, value)?;
+				let value = Scope::evaluate(scope, value)?;
 				Scope::assign(scope, name, value.clone())?;
 				Ok(value)
 			}
 
 			Expression::Binary { left, operator, right } => {
 				if matches!(operator.kind, TokenKind::And | TokenKind::Or) {
-					let left_value = Scope::evaluate_expression(scope, left)?;
+					let left_value = Scope::evaluate(scope, left)?;
 
 					if operator.kind == TokenKind::Or && left_value.is_truthy() {
 						Ok(left_value)
@@ -149,12 +144,12 @@ impl Scope {
 						Ok(left_value)
 					}
 					else {
-						Scope::evaluate_expression(scope, right)
+						Scope::evaluate(scope, right)
 					}
 				}
 				else {
-					let left_value = Scope::evaluate_expression(scope, left)?;
-					let right_value = Scope::evaluate_expression(scope, right)?;
+					let left_value = Scope::evaluate(scope, left)?;
+					let right_value = Scope::evaluate(scope, right)?;
 
 					match operator.kind {
 						TokenKind::Greater => {
@@ -229,7 +224,7 @@ impl Scope {
 				}
 			}
 
-			Expression::Grouping(expression) => Scope::evaluate_expression(scope, expression),
+			Expression::Grouping(expression) => Scope::evaluate(scope, expression),
 
 			Expression::Literal(token) => match token.kind {
 				TokenKind::Nil => Ok(Value::Nil),
@@ -241,7 +236,7 @@ impl Scope {
 			},
 
 			Expression::Unary { operator, right } => {
-				let right_value = Scope::evaluate_expression(scope, right)?;
+				let right_value = Scope::evaluate(scope, right)?;
 
 				match operator.kind {
 					TokenKind::Bang => Ok(Value::Bool(!right_value.is_truthy())),
@@ -266,7 +261,7 @@ impl Environment {
 		Environment { scope: Rc::new(RefCell::new(Scope::new())) }
 	}
 
-	pub fn execute(&mut self, statement: &Statement) -> Result<Option<Value>, RuntimeError> {
+	pub fn execute(&mut self, statement: &Statement) -> Result<Option<Value>> {
 		match statement {
 			Statement::Block { statements, .. } => {
 				let previous = self.scope.clone();
@@ -281,7 +276,7 @@ impl Environment {
 			}
 
 			Statement::Expression(expression) => {
-				let value = Scope::evaluate_expression(&mut self.scope, expression)?;
+				let value = Scope::evaluate(&mut self.scope, expression)?;
 				Ok(Some(value))
 			}
 
@@ -297,7 +292,7 @@ impl Environment {
 					.and_then(|_| {
 						while condition
 							.as_ref()
-							.map(|condition| Scope::evaluate_expression(&mut self.scope, condition))
+							.map(|condition| Scope::evaluate(&mut self.scope, condition))
 							.transpose()?
 							.unwrap_or(Value::Bool(true))
 							.is_truthy()
@@ -318,7 +313,7 @@ impl Environment {
 			}
 
 			Statement::If { condition, then_branch, else_branch, .. } => {
-				let condition = Scope::evaluate_expression(&mut self.scope, condition)?;
+				let condition = Scope::evaluate(&mut self.scope, condition)?;
 
 				if condition.is_truthy() {
 					self.execute(then_branch)?;
@@ -333,19 +328,14 @@ impl Environment {
 			}
 
 			Statement::Print { expression, .. } => {
-				println!(
-					"{}",
-					Scope::evaluate_expression(&mut self.scope, expression)?.to_string()
-				);
+				println!("{}", Scope::evaluate(&mut self.scope, expression)?.to_string());
 				Ok(None)
 			}
 
 			Statement::VariableDeclaration { name, initializer, .. } => {
 				let value = match initializer {
 					None => None,
-					Some(ref expression) => {
-						Some(Scope::evaluate_expression(&mut self.scope, expression)?)
-					}
+					Some(ref expression) => Some(Scope::evaluate(&mut self.scope, expression)?),
 				};
 
 				Scope::define(&mut self.scope, name, value);
@@ -354,7 +344,7 @@ impl Environment {
 			}
 
 			Statement::While { condition, body, .. } => {
-				while Scope::evaluate_expression(&mut self.scope, condition)?.is_truthy() {
+				while Scope::evaluate(&mut self.scope, condition)?.is_truthy() {
 					self.execute(body)?;
 				}
 
@@ -383,7 +373,7 @@ impl Value {
 		}
 	}
 
-	fn as_number(&self, expression: &Expression) -> Result<&f64, RuntimeError> {
+	fn as_number(&self, expression: &Expression) -> Result<&f64> {
 		match self {
 			Value::Number(n) => Ok(n),
 			_ => Err(RuntimeError::TypeError {
@@ -394,7 +384,7 @@ impl Value {
 		}
 	}
 
-	fn as_string(&self, expression: &Expression) -> Result<&Box<str>, RuntimeError> {
+	fn as_string(&self, expression: &Expression) -> Result<&Box<str>> {
 		match self {
 			Value::String(s) => Ok(s),
 			_ => Err(RuntimeError::TypeError {
