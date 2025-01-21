@@ -4,11 +4,16 @@ use crate::interpret::RuntimeError;
 use crate::location::{Locatable, Location};
 use crate::parse::ParseError;
 
-#[derive(Debug)]
 pub enum Error {
 	Io(std::io::Error),
 	Parse(ParseError),
 	Runtime(RuntimeError),
+}
+
+impl std::fmt::Debug for Error {
+	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+		write!(f, "{self:#}")
+	}
 }
 
 impl Display for Error {

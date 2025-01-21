@@ -308,8 +308,7 @@ impl<'a> Tokens<'a> {
 	fn advance_if(&mut self, expected: char) -> bool {
 		if self.peek() != Some(&expected) {
 			false
-		}
-		else {
+		} else {
 			self.advance(true);
 			true
 		}
@@ -353,8 +352,7 @@ impl<'a> Tokens<'a> {
 
 		if self.peek() == None {
 			Err(self.get_error(ErrorKind::UnterminatedString))
-		}
-		else {
+		} else {
 			// consume the closing quote
 			self.advance(true);
 
@@ -466,8 +464,7 @@ impl Iterator for Tokens<'_> {
 						self.advance(true);
 					}
 					Some(Ok(self.get_token(TokenKind::Comment)))
-				}
-				else {
+				} else {
 					Some(Ok(self.get_token(TokenKind::Slash)))
 				}
 			}

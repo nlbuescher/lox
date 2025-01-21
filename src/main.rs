@@ -1,5 +1,7 @@
 use std::io::{stdin, stdout, BufRead, Write};
 
+use clap::Parser as ArgParser;
+
 use crate::error::Error;
 use crate::interpret::Environment;
 use crate::parse::Parser;
@@ -12,25 +14,25 @@ mod parse;
 mod tokenize;
 mod value;
 
-pub fn main() {
-	let args = std::env::args().map(Box::from).collect::<Vec<Box<str>>>();
+#[derive(Debug, clap::Parser)]
+#[command(name = "lox", about = "Lox Interpreter", version)]
+struct Args {
+	// File to run
+	#[arg(short, long)]
+	filename: Option<String>,
 
-	let result = match args.len() {
-		1 => run_prompt(false),
-		2 => run_file(&args[1], false),
-		_ => {
-			eprintln!("Usage: {} <filename>", args[0]);
-			std::process::exit(64)
-		}
-	};
+	// Print tokens and AST
+	#[arg(short, long)]
+	verbose: bool,
+}
 
-	if let Err(error) = result {
-		eprintln!("{error:#}");
+pub fn main() -> Result<(), Error> {
+	let args = Args::parse();
 
-		match error {
-			Error::Io(_) | Error::Parse(_) => std::process::exit(65),
-			Error::Runtime(_) => std::process::exit(70),
-		}
+	if let Some(ref filename) = args.filename {
+		run_file(filename, args.verbose)
+	} else {
+		run_prompt(false)
 	}
 }
 

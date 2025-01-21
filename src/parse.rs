@@ -124,8 +124,7 @@ impl<'a> Parser<'a> {
 	fn parse_declaration(&mut self) -> Result<Statement> {
 		if self.advance_if(TokenKind::Var) {
 			self.parse_variable_declaration()
-		}
-		else {
+		} else {
 			self.parse_statement()
 		}
 	}
@@ -237,14 +236,12 @@ impl<'a> Parser<'a> {
 
 			let else_branch = if next.kind == TokenKind::If {
 				Box::new(self.parse_if_statement()?)
-			}
-			else {
+			} else {
 				Box::new(self.parse_block()?)
 			};
 
 			Some((else_location, else_branch))
-		}
-		else {
+		} else {
 			None
 		};
 
@@ -285,8 +282,7 @@ impl<'a> Parser<'a> {
 
 			return if let Expression::Variable(name) = expression {
 				Ok(Expression::Assignment { name, value: Box::new(value) })
-			}
-			else {
+			} else {
 				Err(ParseError::InvalidAssignment { location: equals.location().clone() })
 			};
 		}
@@ -389,8 +385,7 @@ impl<'a> Parser<'a> {
 				operator: Box::new(self.previous().clone()),
 				right: Box::new(self.parse_unary()?),
 			})
-		}
-		else {
+		} else {
 			self.parse_call()
 		}
 	}
@@ -518,8 +513,7 @@ impl Iterator for Parser<'_> {
 		if matches!(self.peek(), Ok(token) if token.kind == TokenKind::EndOfFile) {
 			self.advance();
 			None
-		}
-		else {
+		} else {
 			let next = self.parse_declaration();
 
 			if next.is_err() {

@@ -186,15 +186,12 @@ impl Scope {
 
 					if operator.kind == TokenKind::Or && left_value.is_truthy() {
 						Ok(Some(left_value))
-					}
-					else if !left_value.is_truthy() {
+					} else if !left_value.is_truthy() {
 						Ok(Some(left_value))
-					}
-					else {
+					} else {
 						Scope::evaluate(scope, right)
 					}
-				}
-				else {
+				} else {
 					let left_value = Scope::evaluate(scope, left)?
 						.ok_or_else(|| RuntimeError::UnexpectedVoid(left.location().clone()))?;
 					let right_value = Scope::evaluate(scope, right)?
@@ -431,8 +428,7 @@ impl Environment {
 				} else if let Some((_, else_branch)) = else_branch {
 					self.execute(else_branch)?;
 					Ok(None)
-				}
-				else {
+				} else {
 					Ok(None)
 				}
 			}
