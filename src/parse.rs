@@ -2,6 +2,7 @@ use std::fmt::{Display, Formatter};
 use std::io::{stdout, Write};
 use std::iter::Peekable;
 use std::ops::Deref;
+use std::rc::Rc;
 
 use crate::location::{Locatable, Location};
 use crate::tokenize;
@@ -36,6 +37,12 @@ pub enum Statement {
 		increment: Option<Box<Statement>>,
 		body: Box<Statement>,
 	},
+	Function {
+		location: Location,
+		name: Box<Token>,
+		parameters: Box<[Token]>,
+		body: Rc<Statement>,
+	},
 	If {
 		if_location: Location,
 		condition: Box<Expression>,
@@ -45,6 +52,10 @@ pub enum Statement {
 	Print {
 		location: Location,
 		expression: Box<Expression>,
+	},
+	Return {
+		location: Location,
+		expression: Option<Box<Expression>>,
 	},
 	VariableDeclaration {
 		location: Location,
@@ -122,11 +133,37 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_declaration(&mut self) -> Result<Statement> {
-		if self.advance_if(TokenKind::Var) {
-			self.parse_variable_declaration()
-		} else {
-			self.parse_statement()
+		if self.advance_if(TokenKind::Fun) {
+			return self.parse_function_declaration();
 		}
+		if self.advance_if(TokenKind::Var) {
+			return self.parse_variable_declaration();
+		}
+
+		self.parse_statement()
+	}
+
+	fn parse_function_declaration(&mut self) -> Result<Statement> {
+		let location = self.previous().location().clone();
+		let name = Box::new(self.expect(TokenKind::Identifier, "function name")?);
+
+		self.expect(TokenKind::LeftParen, "'(' after function name")?;
+
+		let mut parameters = Vec::new();
+		if !self.check(TokenKind::RightParen) {
+			parameters.push(self.expect(TokenKind::Identifier, "parameter name")?);
+
+			while self.advance_if(TokenKind::Comma) {
+				parameters.push(self.expect(TokenKind::Identifier, "parameter name")?);
+			}
+		}
+
+		self.expect(TokenKind::RightParen, "')' after parameters")?;
+		self.expect(TokenKind::LeftBrace, "'{' before function body")?;
+
+		let body = Rc::new(self.parse_block()?);
+
+		Ok(Statement::Function { location, name, parameters: parameters.into(), body })
 	}
 
 	fn parse_variable_declaration(&mut self) -> Result<Statement> {
@@ -161,11 +198,29 @@ impl<'a> Parser<'a> {
 			return self.parse_print_statement();
 		}
 
+		if self.advance_if(TokenKind::Return) {
+			return self.parse_return_statement();
+		}
+
 		if self.advance_if(TokenKind::While) {
 			return self.parse_while_statement();
 		}
 
 		self.parse_expression_statement()
+	}
+
+	fn parse_return_statement(&mut self) -> Result<Statement> {
+		let location = self.previous().location().clone();
+
+		let value = if !self.check(TokenKind::Semicolon) {
+			Some(Box::new(self.parse_expression()?))
+		} else {
+			None
+		};
+
+		self.expect(TokenKind::Semicolon, "';' after return value")?;
+
+		Ok(Statement::Return { location, expression: value })
 	}
 
 	fn parse_block(&mut self) -> Result<Statement> {
@@ -451,8 +506,7 @@ impl<'a> Parser<'a> {
 	}
 
 	fn check(&mut self, token_kind: TokenKind) -> bool {
-		matches!(self.peek(), Ok(it) if it.kind == token_kind
-		)
+		matches!(self.peek(), Ok(it) if it.kind == token_kind)
 	}
 
 	fn expect(&mut self, token_kind: TokenKind, expected: &'static str) -> Result<Token> {
@@ -602,6 +656,33 @@ impl Display for Statement {
 				}
 			}
 
+			Statement::Function { location, name, parameters, body } => {
+				let Token { text, .. } = name.deref();
+
+				if f.alternate() {
+					write!(f, "{location}{PAD:width$} ")?;
+				}
+
+				writeln!(f, "fun {text} (")?;
+
+				for (index, parameter) in parameters.iter().enumerate() {
+					if index != 0 {
+						write!(f, ",")?;
+					}
+
+					let Token { text, .. } = parameter;
+					write!(f, " {text} ")?;
+				}
+
+				writeln!(f, ")")?;
+
+				if f.alternate() {
+					write!(f, "{body:#width$}")
+				} else {
+					write!(f, "{body:width$}")
+				}
+			}
+
 			Statement::If { if_location, condition, then_branch, else_branch } => {
 				if f.alternate() {
 					write!(f, "{if_location}{PAD:width$} ")?;
@@ -634,9 +715,20 @@ impl Display for Statement {
 
 			Statement::Print { location, expression } => {
 				if f.alternate() {
-					write!(f, "{location} {PAD:width$}")?;
+					write!(f, "{location}{PAD:width$} ")?;
 				}
 				write!(f, "(print {expression})")
+			}
+
+			Statement::Return { location, expression: value } => {
+				if f.alternate() {
+					write!(f, "{location}{PAD:width$} ")?;
+				}
+				if let Some(value) = value {
+					write!(f, "(return {value}")
+				} else {
+					write!(f, "(return)")
+				}
 			}
 
 			Statement::VariableDeclaration { location, name, initializer } => {
@@ -731,8 +823,10 @@ impl Locatable for Statement {
 			Statement::Block { start_location, .. } => start_location,
 			Statement::Expression(expression) => expression.location(),
 			Statement::For { location, .. } => location,
+			Statement::Function { location, .. } => location,
 			Statement::If { if_location: location, .. } => location,
 			Statement::Print { location, .. } => location,
+			Statement::Return { location, .. } => location,
 			Statement::VariableDeclaration { name, .. } => name.location(),
 			Statement::While { location, .. } => location,
 		}

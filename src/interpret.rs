@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
-use std::ops::Deref;
 use std::rc::Rc;
 
 use crate::location::{Locatable, Location};
@@ -13,8 +12,14 @@ pub type Result<T> = std::result::Result<T, RuntimeError>;
 
 #[derive(Clone)]
 pub struct Callable {
-	arguments: Box<[Box<str>]>,
-	body: Rc<dyn Fn(&mut Rc<RefCell<Scope>>, Vec<Value>) -> Result<Option<Value>>>,
+	arguments: Box<[Token]>,
+	body: Body,
+}
+
+#[derive(Clone)]
+pub enum Body {
+	Statement(Rc<Statement>),
+	Native(Rc<dyn Fn(&mut Environment, Vec<Value>) -> Result<Value>>),
 }
 
 impl Callable {
@@ -22,8 +27,28 @@ impl Callable {
 		self.arguments.len()
 	}
 
-	fn call(&self, scope: &mut Rc<RefCell<Scope>>, arguments: Vec<Value>) -> Result<Option<Value>> {
-		self.body.deref()(scope, arguments)
+	fn call(&self, environment: &mut Environment, arguments: Vec<Value>) -> Result<Value> {
+		match self.body {
+			Body::Native(ref body) => body(environment, arguments),
+			Body::Statement(ref body) => {
+				let previous = environment.scope.clone();
+				environment.scope = Rc::new(RefCell::new(Scope::with_parent(previous.clone())));
+
+				for (name, argument) in self.arguments.iter().zip(arguments) {
+					Scope::define(&mut environment.scope, &name.text, Some(argument));
+				}
+
+				let result = environment.execute_impl(body);
+
+				environment.scope = previous.clone();
+
+				match result {
+					Ok(_) => Ok(Value::Nil),
+					Err(Break::Return(value)) => Ok(value),
+					Err(Break::Error(error)) => Err(error),
+				}
+			}
+		}
 	}
 }
 
@@ -63,6 +88,17 @@ impl TypeKind {
 impl Display for TypeKind {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		f.write_str(self.as_str())
+	}
+}
+
+pub enum Break {
+	Return(Value),
+	Error(RuntimeError),
+}
+
+impl From<RuntimeError> for Break {
+	fn from(error: RuntimeError) -> Self {
+		Break::Error(error)
 	}
 }
 
@@ -153,8 +189,8 @@ impl Scope {
 		Err(RuntimeError::UndefinedVariable(name.clone()))
 	}
 
-	fn define(scope: &mut Rc<RefCell<Scope>>, name: &Token, value: Option<Value>) {
-		scope.borrow_mut().values.insert(name.text.clone(), value);
+	fn define(scope: &mut Rc<RefCell<Scope>>, name: &str, value: Option<Value>) {
+		scope.borrow_mut().values.insert(name.into(), value);
 	}
 
 	fn assign(scope: &mut Rc<RefCell<Self>>, name: &Token, value: Value) -> Result<()> {
@@ -169,87 +205,217 @@ impl Scope {
 
 		Err(RuntimeError::UndefinedVariable(Box::new(name.clone())))
 	}
+}
 
-	fn evaluate(scope: &mut Rc<RefCell<Scope>>, expression: &Expression) -> Result<Option<Value>> {
+impl Environment {
+	pub fn new() -> Self {
+		let mut environment = Environment { scope: Rc::new(RefCell::new(Scope::new())) };
+
+		Scope::define(
+			&mut environment.scope,
+			"clock",
+			Some(Value::Callable(Callable {
+				arguments: Box::new([]),
+				body: Body::Native(Rc::new(|_, _| {
+					use std::time::{SystemTime, UNIX_EPOCH};
+
+					let now = SystemTime::now();
+					let duration = now.duration_since(UNIX_EPOCH).unwrap();
+					let seconds = duration.as_secs() as f64;
+					let nanos = duration.subsec_nanos() as f64 / 1_000_000_000.0;
+
+					Ok(Value::Number(seconds + nanos))
+				})),
+			})),
+		);
+
+		environment
+	}
+
+	pub fn execute(&mut self, statement: &Statement) -> Result<Value> {
+		self.execute_impl(statement).map_err(|error| match error {
+			Break::Error(error) => error,
+			Break::Return(_) => unreachable!("If you've landed here, the parser allowed a return statement outside of a function")
+		})
+	}
+
+	fn execute_impl(&mut self, statement: &Statement) -> std::result::Result<Value, Break> {
+		match statement {
+			Statement::Block { statements, .. } => {
+				let previous = self.scope.clone();
+				self.scope = Rc::new(RefCell::new(Scope::with_parent(previous.clone())));
+
+				let result = statements
+					.iter()
+					.try_fold(Value::Nil, |_, statement| self.execute_impl(statement));
+
+				self.scope = previous.clone();
+
+				result
+			}
+
+			Statement::Expression(expression) => Ok(self.evaluate(expression)?),
+
+			Statement::For { initializer, condition, increment, body, .. } => {
+				let previous = self.scope.clone();
+
+				self.scope = Rc::new(RefCell::new(Scope::with_parent(previous.clone())));
+
+				let result = initializer
+					.as_ref()
+					.map(|initializer| self.execute_impl(initializer))
+					.transpose()
+					.and_then(|_| {
+						while condition
+							.as_ref()
+							.map(|condition| self.evaluate(condition))
+							.transpose()?
+							.unwrap_or_else(|| Value::Bool(true))
+							.is_truthy()
+						{
+							self.execute_impl(body)?;
+
+							if let Some(increment) = increment {
+								self.execute_impl(&increment)?;
+							}
+						}
+
+						Ok(())
+					});
+
+				self.scope = previous.clone();
+
+				result.map(|_| Value::Nil)
+			}
+
+			Statement::Function { name, parameters, body, .. } => {
+				let callable =
+					Callable { arguments: parameters.clone(), body: Body::Statement(body.clone()) };
+				Scope::define(&mut self.scope, &name.text, Some(Value::Callable(callable)));
+
+				Ok(Value::Nil)
+			}
+
+			Statement::If { condition, then_branch, else_branch, .. } => {
+				let condition = self.evaluate(condition)?;
+
+				if condition.is_truthy() {
+					self.execute_impl(then_branch)?;
+				} else if let Some((_, else_branch)) = else_branch {
+					self.execute_impl(else_branch)?;
+				}
+				Ok(Value::Nil)
+			}
+
+			Statement::Print { expression, .. } => {
+				println!("{}", self.evaluate(expression)?.to_string());
+				Ok(Value::Nil)
+			}
+
+			Statement::Return { expression, .. } => {
+				let value = expression
+					.as_ref()
+					.map(|expression| self.evaluate(expression))
+					.transpose()?
+					.unwrap_or_else(|| Value::Nil);
+
+				Err(Break::Return(value))
+			}
+
+			Statement::VariableDeclaration { name, initializer, .. } => {
+				let value = match initializer {
+					None => None,
+					Some(ref expression) => Some(self.evaluate(expression)?),
+				};
+
+				Scope::define(&mut self.scope, &name.text, value);
+
+				Ok(Value::Nil)
+			}
+
+			Statement::While { condition, body, .. } => {
+				while self.evaluate(condition)?.is_truthy() {
+					self.execute_impl(body)?;
+				}
+
+				Ok(Value::Nil)
+			}
+		}
+	}
+
+	fn evaluate(&mut self, expression: &Expression) -> Result<Value> {
 		match expression {
 			Expression::Assignment { name, value } => {
-				let value = Scope::evaluate(scope, value)?
-					.ok_or_else(|| RuntimeError::UnexpectedVoid(value.location().clone()))?;
-				Scope::assign(scope, name, value.clone())?;
-				Ok(Some(value))
+				let value = self.evaluate(value)?;
+				Scope::assign(&mut self.scope, name, value.clone())?;
+				Ok(value)
 			}
 
 			Expression::Binary { left, operator, right } => {
 				if matches!(operator.kind, TokenKind::And | TokenKind::Or) {
-					let left_value = Scope::evaluate(scope, left)?
-						.ok_or_else(|| RuntimeError::UnexpectedVoid(left.location().clone()))?;
-
+					let left_value = self.evaluate(left)?;
 					if operator.kind == TokenKind::Or && left_value.is_truthy() {
-						Ok(Some(left_value))
+						Ok(left_value)
 					} else if !left_value.is_truthy() {
-						Ok(Some(left_value))
+						Ok(left_value)
 					} else {
-						Scope::evaluate(scope, right)
+						self.evaluate(right)
 					}
 				} else {
-					let left_value = Scope::evaluate(scope, left)?
-						.ok_or_else(|| RuntimeError::UnexpectedVoid(left.location().clone()))?;
-					let right_value = Scope::evaluate(scope, right)?
-						.ok_or_else(|| RuntimeError::UnexpectedVoid(right.location().clone()))?;
+					let left_value = self.evaluate(left)?;
+					let right_value = self.evaluate(right)?;
 
 					match operator.kind {
 						TokenKind::Greater => {
 							let left_number = left_value.as_number(left)?;
 							let right_number = right_value.as_number(right)?;
 
-							Ok(Some(Value::Bool(left_number > right_number)))
+							Ok(Value::Bool(left_number > right_number))
 						}
 
 						TokenKind::GreaterEqual => {
 							let left_number = left_value.as_number(left)?;
 							let right_number = right_value.as_number(right)?;
 
-							Ok(Some(Value::Bool(left_number >= right_number)))
+							Ok(Value::Bool(left_number >= right_number))
 						}
 
 						TokenKind::Less => {
 							let left_number = left_value.as_number(left)?;
 							let right_number = right_value.as_number(right)?;
 
-							Ok(Some(Value::Bool(left_number < right_number)))
+							Ok(Value::Bool(left_number < right_number))
 						}
 
 						TokenKind::LessEqual => {
 							let left_number = left_value.as_number(left)?;
 							let right_number = right_value.as_number(right)?;
 
-							Ok(Some(Value::Bool(left_number <= right_number)))
+							Ok(Value::Bool(left_number <= right_number))
 						}
 
-						TokenKind::BangEqual => Ok(Some(Value::Bool(left_value != right_value))),
+						TokenKind::BangEqual => Ok(Value::Bool(left_value != right_value)),
 
-						TokenKind::EqualEqual => Ok(Some(Value::Bool(left_value == right_value))),
+						TokenKind::EqualEqual => Ok(Value::Bool(left_value == right_value)),
 
 						TokenKind::Minus => {
 							let left_number = left_value.as_number(left)?;
 							let right_number = right_value.as_number(right)?;
 
-							Ok(Some(Value::Number(left_number - right_number)))
+							Ok(Value::Number(left_number - right_number))
 						}
 
 						TokenKind::Plus => match left_value.as_number(left) {
 							Ok(left_number) => {
 								let right_number = right_value.as_number(right)?;
 
-								Ok(Some(Value::Number(left_number + right_number)))
+								Ok(Value::Number(left_number + right_number))
 							}
 							Err(_) => {
 								let left_string = left_value.as_string(left)?;
 								let right_string = right_value.as_string(right)?;
 
-								Ok(Some(Value::String(
-									format!("{left_string}{right_string}").into(),
-								)))
+								Ok(Value::String(format!("{left_string}{right_string}").into()))
 							}
 						},
 
@@ -257,14 +423,14 @@ impl Scope {
 							let left_number = left_value.as_number(left)?;
 							let right_number = right_value.as_number(right)?;
 
-							Ok(Some(Value::Number(left_number / right_number)))
+							Ok(Value::Number(left_number / right_number))
 						}
 
 						TokenKind::Star => {
 							let left_number = left_value.as_number(left)?;
 							let right_number = right_value.as_number(right)?;
 
-							Ok(Some(Value::Number(left_number * right_number)))
+							Ok(Value::Number(left_number * right_number))
 						}
 
 						it => unreachable!("Unknown operator {} evaluating binary expression!", it),
@@ -273,23 +439,16 @@ impl Scope {
 			}
 
 			Expression::Call { callee, arguments_start_location, arguments, .. } => {
-				let callee = Scope::evaluate(scope, callee)?
-					.ok_or_else(|| RuntimeError::UnexpectedVoid(callee.location().clone()))?;
+				let callee = self.evaluate(callee)?;
 
 				let arguments = arguments
 					.iter()
-					.map(|argument| {
-						Scope::evaluate(scope, argument).and_then(|value| {
-							value.ok_or_else(|| {
-								RuntimeError::UnexpectedVoid(argument.location().clone())
-							})
-						})
-					})
+					.map(|argument| self.evaluate(argument))
 					.collect::<Result<Vec<Value>>>()?;
 
 				if let Value::Callable(callable) = callee {
 					if arguments.len() == callable.arity() {
-						callable.call(scope, arguments)
+						Ok(callable.call(self, arguments)?)
 					} else {
 						Err(RuntimeError::UnexpectedNumberOfArguments {
 							location: arguments_start_location.clone(),
@@ -302,172 +461,34 @@ impl Scope {
 				}
 			}
 
-			Expression::Grouping(expression) => Scope::evaluate(scope, expression),
+			Expression::Grouping(expression) => self.evaluate(expression),
 
 			Expression::Literal(token) => match token.kind {
-				TokenKind::Nil => Ok(Some(Value::Nil)),
-				TokenKind::True => Ok(Some(Value::Bool(true))),
-				TokenKind::False => Ok(Some(Value::Bool(false))),
-				TokenKind::Number => Ok(Some(token.value.clone().unwrap())),
-				TokenKind::String => Ok(Some(token.value.clone().unwrap())),
+				TokenKind::Nil => Ok(Value::Nil),
+				TokenKind::True => Ok(Value::Bool(true)),
+				TokenKind::False => Ok(Value::Bool(false)),
+				TokenKind::Number => Ok(token.value.clone().unwrap()),
+				TokenKind::String => Ok(token.value.clone().unwrap()),
 				it => unreachable!("Unknown token {} evaluating literal!", it),
 			},
 
 			Expression::Unary { operator, right } => {
-				let right_value = Scope::evaluate(scope, right)?
-					.ok_or_else(|| RuntimeError::UnexpectedVoid(right.location().clone()))?;
+				let right_value = self.evaluate(right)?;
 
 				match operator.kind {
-					TokenKind::Bang => Ok(Some(Value::Bool(!right_value.is_truthy()))),
+					TokenKind::Bang => Ok(Value::Bool(!right_value.is_truthy())),
 
 					TokenKind::Minus => {
 						let right_number = right_value.as_number(right)?;
 
-						Ok(Some(Value::Number(-right_number)))
+						Ok(Value::Number(-right_number))
 					}
 
 					it => unreachable!("Unknown operator {} evaluating unary expression!", it),
 				}
 			}
 
-			Expression::Variable(name) => Scope::get(scope, name).map(Some),
-		}
-	}
-}
-
-impl Environment {
-	pub fn new() -> Self {
-		let mut environment = Environment { scope: Rc::new(RefCell::new(Scope::new())) };
-
-		Scope::define(
-			&mut environment.scope,
-			&Token::with_text(Location::new(0, 0), TokenKind::Identifier, "clock"),
-			Some(Value::Callable(Callable {
-				arguments: Box::new([]),
-				body: Rc::new(|_, _| {
-					use std::time::{SystemTime, UNIX_EPOCH};
-
-					let now = SystemTime::now();
-					let duration = now.duration_since(UNIX_EPOCH).unwrap();
-					let seconds = duration.as_secs() as f64;
-					let nanos = duration.subsec_nanos() as f64 / 1_000_000_000.0;
-
-					Ok(Some(Value::Number(seconds + nanos)))
-				}),
-			})),
-		);
-
-		environment
-	}
-
-	pub fn execute(&mut self, statement: &Statement) -> Result<Option<Value>> {
-		match statement {
-			Statement::Block { statements, .. } => {
-				let previous = self.scope.clone();
-				self.scope = Rc::new(RefCell::new(Scope::with_parent(previous.clone())));
-
-				let result =
-					statements.iter().try_fold(None, |_, statement| self.execute(statement));
-
-				self.scope = previous.clone();
-
-				result
-			}
-
-			Statement::Expression(expression) => {
-				let value = Scope::evaluate(&mut self.scope, expression)?
-					.ok_or_else(|| RuntimeError::UnexpectedVoid(expression.location().clone()))?;
-				Ok(Some(value))
-			}
-
-			Statement::For { initializer, condition, increment, body, .. } => {
-				let previous = self.scope.clone();
-
-				self.scope = Rc::new(RefCell::new(Scope::with_parent(previous.clone())));
-
-				let result = initializer
-					.as_ref()
-					.map(|initializer| self.execute(initializer))
-					.transpose()
-					.and_then(|_| {
-						while condition
-							.as_ref()
-							.map(|condition| {
-								Scope::evaluate(&mut self.scope, condition).and_then(|value| {
-									value.ok_or_else(|| {
-										RuntimeError::UnexpectedVoid(condition.location().clone())
-									})
-								})
-							})
-							.transpose()?
-							.unwrap_or(Value::Bool(true))
-							.is_truthy()
-						{
-							self.execute(body)?;
-
-							if let Some(increment) = increment {
-								self.execute(&increment)?;
-							}
-						}
-
-						Ok(())
-					});
-
-				self.scope = previous.clone();
-
-				result.map(|_| None)
-			}
-
-			Statement::If { condition, then_branch, else_branch, .. } => {
-				let condition = Scope::evaluate(&mut self.scope, condition)?
-					.ok_or_else(|| RuntimeError::UnexpectedVoid(condition.location().clone()))?;
-
-				if condition.is_truthy() {
-					self.execute(then_branch)?;
-					Ok(None)
-				} else if let Some((_, else_branch)) = else_branch {
-					self.execute(else_branch)?;
-					Ok(None)
-				} else {
-					Ok(None)
-				}
-			}
-
-			Statement::Print { expression, .. } => {
-				println!(
-					"{}",
-					Scope::evaluate(&mut self.scope, expression)?
-						.ok_or_else(|| RuntimeError::UnexpectedVoid(expression.location().clone()))?
-						.to_string()
-				);
-				Ok(None)
-			}
-
-			Statement::VariableDeclaration { name, initializer, .. } => {
-				let value = match initializer {
-					None => None,
-					Some(ref expression) => {
-						Some(Scope::evaluate(&mut self.scope, expression)?.ok_or_else(|| {
-							RuntimeError::UnexpectedVoid(expression.location().clone())
-						})?)
-					}
-				};
-
-				Scope::define(&mut self.scope, name, value);
-
-				Ok(None)
-			}
-
-			Statement::While { condition, body, .. } => {
-				while Scope::evaluate(&mut self.scope, condition)?
-					.ok_or_else(|| RuntimeError::UnexpectedVoid(condition.location().clone()))?
-					.is_truthy()
-				{
-					self.execute(body)?;
-				}
-
-				Ok(None)
-			}
+			Expression::Variable(name) => Scope::get(&mut self.scope, name),
 		}
 	}
 }
@@ -486,9 +507,9 @@ impl Value {
 	fn is_truthy(&self) -> bool {
 		match self {
 			Value::Nil => false,
-			Value::Bool(b) => *b,
-			Value::Number(n) => *n != 0.0,
-			Value::String(s) => !s.is_empty(),
+			Value::Bool(value) => *value,
+			Value::Number(value) => *value != 0.0,
+			Value::String(value) => !value.is_empty(),
 			Value::Callable(_) => true,
 		}
 	}
