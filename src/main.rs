@@ -103,13 +103,14 @@ mod tests {
 	#[test]
 	pub fn test() {
 		let input = r#"
-fun test() {
+fun test(value) {
+	print value;
 	return;
 	for (var i = 0; i < 10; i = i + 1) {
 		print i;
 	}
 }
-print test();"#;
+print test("test");"#;
 
 		let mut environment = Environment::new();
 

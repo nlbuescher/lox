@@ -4,15 +4,6 @@ pub trait Locatable {
 	fn location(&self) -> &Location;
 }
 
-impl<T: Locatable, E: Locatable> Locatable for Result<T, E> {
-	fn location(&self) -> &Location {
-		match self {
-			Ok(value) => value.location(),
-			Err(error) => error.location(),
-		}
-	}
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Location {
 	pub line: u32,
@@ -27,7 +18,12 @@ impl Location {
 
 impl Display for Location {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+		const PAD: &str = "";
+
+		let width = f.width().unwrap_or(0);
 		let Location { line, column } = self;
-		write!(f, "[{line:>3}:{column:<3}]") // 3 characters gets us up to 999, which is a good default
+
+		// 3 characters gets us up to 999, which should be enough for most cases
+		write!(f, "[{line:>3}:{column:<3}]{PAD:width$}")
 	}
 }

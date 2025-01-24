@@ -602,38 +602,36 @@ impl Display for ParseError {
 
 impl Display for Statement {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		const PAD: &str = "";
-
 		let width = f.width().unwrap_or(0);
 
 		match self {
 			Statement::Block { start_location, end_location, statements, .. } => {
 				if f.alternate() {
-					write!(f, "{start_location}{PAD:width$} ")?;
+					write!(f, "{start_location:width$} ")?;
 				}
-				writeln!(f, "{{")?;
+				write!(f, "{{\n")?;
 				stdout().flush().unwrap();
 
 				{
 					let width = width + 1;
 					for statement in statements {
 						if f.alternate() {
-							writeln!(f, "{statement:#width$}")?;
+							write!(f, "{statement:#width$}\n")?;
 						} else {
-							writeln!(f, "{statement:width$}")?;
+							write!(f, "{statement:width$}\n")?;
 						}
 					}
 				}
 
 				if f.alternate() {
-					write!(f, "{end_location}{PAD:width$} ")?;
+					write!(f, "{end_location:width$} ")?;
 				}
 				write!(f, "}}")
 			}
 
 			Statement::Expression(expression) => {
 				if f.alternate() {
-					write!(f, "{location}{PAD:width$} ", location = expression.location())?;
+					write!(f, "{location:width$} ", location = expression.location())?;
 				}
 				write!(f, "(expr {expression})")
 			}
@@ -644,10 +642,10 @@ impl Display for Statement {
 				let increment = increment.as_ref().map_or(String::new(), |it| it.to_string());
 
 				if f.alternate() {
-					write!(f, "{location}{PAD:width$} ")?;
+					write!(f, "{location:width$} ")?;
 				}
 
-				writeln!(f, "for ({initializer} ; {condition} ; {increment})")?;
+				write!(f, "for ({initializer}; {condition}; {increment})\n")?;
 
 				if f.alternate() {
 					write!(f, "{body:#width$}")
@@ -660,10 +658,10 @@ impl Display for Statement {
 				let Token { text, .. } = name.deref();
 
 				if f.alternate() {
-					write!(f, "{location}{PAD:width$} ")?;
+					write!(f, "{location:width$} ")?;
 				}
 
-				writeln!(f, "fun {text} (")?;
+				write!(f, "fun {text}(")?;
 
 				for (index, parameter) in parameters.iter().enumerate() {
 					if index != 0 {
@@ -674,7 +672,7 @@ impl Display for Statement {
 					write!(f, " {text} ")?;
 				}
 
-				writeln!(f, ")")?;
+				write!(f, ")\n")?;
 
 				if f.alternate() {
 					write!(f, "{body:#width$}")
@@ -685,10 +683,10 @@ impl Display for Statement {
 
 			Statement::If { if_location, condition, then_branch, else_branch } => {
 				if f.alternate() {
-					write!(f, "{if_location}{PAD:width$} ")?;
+					write!(f, "{if_location:width$} ")?;
 				}
 
-				writeln!(f, "if {condition}")?;
+				write!(f, "if {condition}\n")?;
 
 				if f.alternate() {
 					write!(f, "{then_branch:#width$}")?;
@@ -697,17 +695,16 @@ impl Display for Statement {
 				}
 
 				if let Some((else_location, else_branch)) = else_branch {
-					writeln!(f)?;
 					if f.alternate() {
-						write!(f, "{else_location}{PAD:width$} ")?;
+						write!(f, "\n{else_location:width$} ")?;
 					}
 
-					writeln!(f, "else")?;
+					write!(f, "\nelse\n")?;
 
 					if f.alternate() {
 						write!(f, "{else_branch:#width$}")?;
 					} else {
-						write!(f, "else\n{else_branch:width$}")?;
+						write!(f, "{else_branch:width$}")?;
 					}
 				}
 				Ok(())
@@ -715,43 +712,43 @@ impl Display for Statement {
 
 			Statement::Print { location, expression } => {
 				if f.alternate() {
-					write!(f, "{location}{PAD:width$} ")?;
+					write!(f, "{location:width$} ")?;
 				}
 				write!(f, "(print {expression})")
 			}
 
 			Statement::Return { location, expression: value } => {
 				if f.alternate() {
-					write!(f, "{location}{PAD:width$} ")?;
+					write!(f, "{location:width$} ")?;
 				}
 				if let Some(value) = value {
-					write!(f, "(return {value}")
+					write!(f, "(return {value})")
 				} else {
 					write!(f, "(return)")
 				}
 			}
 
 			Statement::VariableDeclaration { location, name, initializer } => {
-				let Token { text, .. } = name.deref();
+				let Token { text: name, .. } = name.deref();
 
 				if f.alternate() {
-					write!(f, "{location} {PAD:width$}")?;
+					write!(f, "{location:width$} ")?;
 				}
 				match initializer {
 					Some(expression) => {
-						write!(f, "(vardecl {text} = {expression})")
+						write!(f, "(vardecl {name} = {expression})")
 					}
 
-					None => write!(f, "(vardecl {text})"),
+					None => write!(f, "(vardecl {name})"),
 				}
 			}
 
 			Statement::While { location, condition, body } => {
 				if f.alternate() {
-					write!(f, "{location} {PAD:width$}")?;
+					write!(f, "{location:width$} ")?;
 				}
 
-				writeln!(f, "while {condition}")?;
+				write!(f, "while {condition}\n")?;
 
 				if f.alternate() {
 					write!(f, "{body:#width$}")
@@ -769,19 +766,25 @@ impl Display for Expression {
 			write!(f, "{location} ", location = self.location())?;
 		}
 		match self {
-			Expression::Assignment { name, value } => write!(f, "(assign {name} = {value})"),
+			Expression::Assignment { name, value } => {
+				let Token { text: name, .. } = name.deref();
+				write!(f, "(assign {name} = {value})")
+			}
 
 			Expression::Binary { left, operator, right } => {
-				let Token { text, .. } = operator.deref();
-				write!(f, "({text} {left} {right})")
+				let Token { text: operator, .. } = operator.deref();
+				write!(f, "({operator} {left} {right})")
 			}
 
 			Expression::Call { callee, arguments, .. } => {
-				write!(f, "(call {callee} ( ")?;
-				for argument in arguments {
-					write!(f, "{argument} ")?;
+				write!(f, "(call {callee}(")?;
+				for (index, argument) in arguments.iter().enumerate() {
+					if index != 0 {
+						write!(f, ", ")?;
+					}
+					write!(f, "{argument}")?;
 				}
-				write!(f, ") )")
+				write!(f, "))")
 			}
 
 			Expression::Literal(token) => {
@@ -792,13 +795,13 @@ impl Display for Expression {
 			Expression::Grouping(expression) => write!(f, "(group {expression})"),
 
 			Expression::Unary { operator, right } => {
-				let Token { text, .. } = operator.deref();
-				write!(f, "({text} {right})")
+				let Token { text: operator, .. } = operator.deref();
+				write!(f, "({operator} {right})")
 			}
 
-			Expression::Variable(token) => {
-				let Token { text, .. } = token.deref();
-				write!(f, "(var {text})")
+			Expression::Variable(name) => {
+				let Token { text: name, .. } = name.deref();
+				write!(f, "(var {name})")
 			}
 		}
 	}
@@ -811,7 +814,10 @@ impl Display for Expression {
 impl Locatable for ParseError {
 	fn location(&self) -> &Location {
 		match self {
-			ParseError::UnexpectedToken { actual, .. } => actual.location(),
+			ParseError::UnexpectedToken { actual, .. } => match actual.deref() {
+				Ok(token) => token.location(),
+				Err(error) => error.location(),
+			},
 			ParseError::InvalidAssignment { location, .. } => location,
 		}
 	}
