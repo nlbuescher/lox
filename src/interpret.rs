@@ -34,6 +34,7 @@ pub enum TypeKind {
 
 #[derive(Clone)]
 pub struct Callable {
+	scope: Rc<RefCell<Scope>>,
 	arguments: Box<[Token]>,
 	body: Body,
 }
@@ -115,7 +116,7 @@ mod visit {
 		fn visit_expression(&mut self, expression: &Expression) -> Result<T, RuntimeError>;
 
 		fn visit_assignment(&mut self, name: &Token, value: &Expression)
-		                    -> Result<T, RuntimeError>;
+			-> Result<T, RuntimeError>;
 
 		fn visit_binary(
 			&mut self,
@@ -147,12 +148,15 @@ mod visit {
 
 impl Environment {
 	pub fn new() -> Self {
-		let mut environment = Environment { scope: Rc::new(RefCell::new(Scope::new())) };
+		let scope = Scope::new();
+
+		let mut environment = Environment { scope: scope.clone() };
 
 		Scope::define(
 			&mut environment.scope,
 			"clock",
 			Some(Value::Callable(Callable {
+				scope: scope.clone(),
 				arguments: Box::new([]),
 				body: Body::Native(Rc::new(|_, _| {
 					use std::time::{SystemTime, UNIX_EPOCH};
@@ -170,6 +174,18 @@ impl Environment {
 		environment
 	}
 
+	pub fn run_in_scope<T, E>(
+		&mut self,
+		scope: Rc<RefCell<Scope>>,
+		block: impl FnOnce(&mut Environment) -> std::result::Result<T, E>,
+	) -> std::result::Result<T, E> {
+		let previous = self.scope.clone();
+		self.scope = scope;
+		let result = block(self);
+		self.scope = previous;
+		result
+	}
+
 	pub fn execute(&mut self, statement: &Statement) -> Result<Value> {
 		self.visit_statement(statement).map_err(|error| match error {
 			Break::Error(error) => error,
@@ -179,12 +195,12 @@ impl Environment {
 }
 
 impl Scope {
-	fn new() -> Self {
-		Scope { parent: None, values: HashMap::new() }
+	fn new() -> Rc<RefCell<Self>> {
+		Rc::new(RefCell::new(Scope { parent: None, values: HashMap::new() }))
 	}
 
-	fn with_parent(parent: Rc<RefCell<Scope>>) -> Self {
-		Scope { parent: Some(parent), values: HashMap::new() }
+	fn with_parent(parent: &Rc<RefCell<Scope>>) -> Rc<RefCell<Self>> {
+		Rc::new(RefCell::new(Scope { parent: Some(parent.clone()), values: HashMap::new() }))
 	}
 
 	fn get(scope: &Rc<RefCell<Scope>>, name: &Token) -> Result<Value> {
@@ -229,16 +245,14 @@ impl Callable {
 		match self.body {
 			Body::Native(ref body) => body(environment, arguments),
 			Body::Statement(ref body) => {
-				let previous = environment.scope.clone();
-				environment.scope = Rc::new(RefCell::new(Scope::with_parent(previous.clone())));
+				let result =
+					environment.run_in_scope(Scope::with_parent(&self.scope), |environment| {
+						for (name, argument) in self.arguments.iter().zip(arguments) {
+							Scope::define(&mut environment.scope, &name.text, Some(argument));
+						}
 
-				for (name, argument) in self.arguments.iter().zip(arguments) {
-					Scope::define(&mut environment.scope, &name.text, Some(argument));
-				}
-
-				let result = environment.visit_statement(body);
-
-				environment.scope = previous.clone();
+						environment.visit_statement(body)
+					});
 
 				match result {
 					Ok(_) => Ok(Value::Nil),
@@ -357,16 +371,11 @@ impl Visitor<Value> for Environment {
 	}
 
 	fn visit_block(&mut self, statements: &Box<[Statement]>) -> std::result::Result<Value, Break> {
-		let previous = self.scope.clone();
-
-		self.scope = Rc::new(RefCell::new(Scope::with_parent(previous.clone())));
-
-		let result =
-			statements.iter().try_fold(Value::Nil, |_, statement| self.visit_statement(statement));
-
-		self.scope = previous.clone();
-
-		result
+		self.run_in_scope(Scope::with_parent(&self.scope), |environment| {
+			statements
+				.iter()
+				.try_fold(Value::Nil, |_, statement| environment.visit_statement(statement))
+		})
 	}
 
 	fn visit_for(
@@ -376,35 +385,27 @@ impl Visitor<Value> for Environment {
 		increment: Option<&Statement>,
 		body: &Statement,
 	) -> std::result::Result<Value, Break> {
-		let previous = self.scope.clone();
+		self.run_in_scope(Scope::with_parent(&self.scope), |environment| {
+			if let Some(initializer) = initializer {
+				environment.visit_statement(initializer)?;
+			}
 
-		self.scope = Rc::new(RefCell::new(Scope::with_parent(previous.clone())));
+			while condition
+				.as_ref()
+				.map(|condition| environment.visit_expression(condition))
+				.transpose()?
+				.unwrap_or_else(|| Value::Bool(true))
+				.is_truthy()
+			{
+				environment.visit_statement(body)?;
 
-		let result = initializer
-			.as_ref()
-			.map(|initializer| self.visit_statement(initializer))
-			.transpose()
-			.and_then(|_| {
-				while condition
-					.as_ref()
-					.map(|condition| self.visit_expression(condition))
-					.transpose()?
-					.unwrap_or_else(|| Value::Bool(true))
-					.is_truthy()
-				{
-					self.visit_statement(body)?;
-
-					if let Some(increment) = increment {
-						self.visit_statement(&increment)?;
-					}
+				if let Some(increment) = increment {
+					environment.visit_statement(increment)?;
 				}
+			}
 
-				Ok(())
-			});
-
-		self.scope = previous.clone();
-
-		result.map(|_| Value::Nil)
+			Ok(Value::Nil)
+		})
 	}
 
 	fn visit_function_declaration(
@@ -413,9 +414,17 @@ impl Visitor<Value> for Environment {
 		parameters: &Box<[Token]>,
 		body: Rc<Statement>,
 	) -> std::result::Result<Value, Break> {
-		let callable = Callable { arguments: parameters.clone(), body: Body::Statement(body) };
+		let scope = self.scope.clone();
 
-		Scope::define(&mut self.scope, &name.text, Some(Value::Callable(callable)));
+		Scope::define(
+			&mut self.scope,
+			&name.text,
+			Some(Value::Callable(Callable {
+				scope,
+				arguments: parameters.clone(),
+				body: Body::Statement(body),
+			})),
+		);
 
 		Ok(Value::Nil)
 	}
