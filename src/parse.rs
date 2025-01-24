@@ -37,7 +37,7 @@ pub enum Statement {
 		increment: Option<Box<Statement>>,
 		body: Box<Statement>,
 	},
-	Function {
+	FunctionDeclaration {
 		location: Location,
 		name: Box<Token>,
 		parameters: Box<[Token]>,
@@ -163,7 +163,7 @@ impl<'a> Parser<'a> {
 
 		let body = Rc::new(self.parse_block()?);
 
-		Ok(Statement::Function { location, name, parameters: parameters.into(), body })
+		Ok(Statement::FunctionDeclaration { location, name, parameters: parameters.into(), body })
 	}
 
 	fn parse_variable_declaration(&mut self) -> Result<Statement> {
@@ -654,7 +654,7 @@ impl Display for Statement {
 				}
 			}
 
-			Statement::Function { location, name, parameters, body } => {
+			Statement::FunctionDeclaration { location, name, parameters, body } => {
 				let Token { text, .. } = name.deref();
 
 				if f.alternate() {
@@ -829,7 +829,7 @@ impl Locatable for Statement {
 			Statement::Block { start_location, .. } => start_location,
 			Statement::Expression(expression) => expression.location(),
 			Statement::For { location, .. } => location,
-			Statement::Function { location, .. } => location,
+			Statement::FunctionDeclaration { location, .. } => location,
 			Statement::If { if_location: location, .. } => location,
 			Statement::Print { location, .. } => location,
 			Statement::Return { location, .. } => location,
