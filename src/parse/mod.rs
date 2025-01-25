@@ -1,102 +1,23 @@
-use std::fmt::{Display, Formatter};
-use std::io::{stdout, Write};
 use std::iter::Peekable;
-use std::ops::Deref;
 use std::rc::Rc;
 
-use crate::location::{Locatable, Location};
+pub use error::ParseError;
+pub use expression::Expression;
+pub use statement::Statement;
+
+use crate::location::Locatable;
 use crate::tokenize;
 use crate::tokenize::{Error, Token, TokenKind, Tokens};
 
-pub type Result<T> = std::result::Result<T, ParseError>;
-
-#[derive(Debug)]
-pub enum ParseError {
-	UnexpectedToken { expected: &'static str, actual: Box<tokenize::Result> },
-	InvalidAssignment { location: Location },
-}
+mod error;
+mod expression;
+mod statement;
 
 #[derive(Clone)]
 pub struct Parser<'a> {
 	tokens: Peekable<Tokens<'a>>,
 	previous: Option<tokenize::Result>,
 }
-
-#[derive(Debug, Clone)]
-pub enum Statement {
-	Block {
-		start_location: Location,
-		end_location: Location,
-		statements: Box<[Statement]>,
-	},
-	Expression(Box<Expression>),
-	For {
-		location: Location,
-		initializer: Option<Box<Statement>>,
-		condition: Option<Box<Expression>>,
-		increment: Option<Box<Statement>>,
-		body: Box<Statement>,
-	},
-	FunctionDeclaration {
-		location: Location,
-		name: Box<Token>,
-		parameters: Box<[Token]>,
-		body: Rc<Statement>,
-	},
-	If {
-		if_location: Location,
-		condition: Box<Expression>,
-		then_branch: Box<Statement>,
-		else_branch: Option<(Location, Box<Statement>)>,
-	},
-	Print {
-		location: Location,
-		expression: Box<Expression>,
-	},
-	Return {
-		location: Location,
-		expression: Option<Box<Expression>>,
-	},
-	VariableDeclaration {
-		location: Location,
-		name: Box<Token>,
-		initializer: Option<Box<Expression>>,
-	},
-	While {
-		location: Location,
-		condition: Box<Expression>,
-		body: Box<Statement>,
-	},
-}
-
-#[derive(Debug, Clone)]
-pub enum Expression {
-	Assignment {
-		name: Box<Token>,
-		value: Box<Expression>,
-	},
-	Binary {
-		left: Box<Expression>,
-		operator: Box<Token>,
-		right: Box<Expression>,
-	},
-	Call {
-		callee: Box<Expression>,
-		arguments_start_location: Location,
-		arguments: Box<[Expression]>,
-	},
-	Literal(Box<Token>),
-	Grouping(Box<Expression>),
-	Unary {
-		operator: Box<Token>,
-		right: Box<Expression>,
-	},
-	Variable(Box<Token>),
-}
-
-/////////////////////////////////////////////////////////////////////////////
-// Type implementations
-/////////////////////////////////////////////////////////////////////////////
 
 impl<'a> Parser<'a> {
 	pub fn new(tokens: Tokens<'a>) -> Self {
@@ -132,7 +53,7 @@ impl<'a> Parser<'a> {
 		}
 	}
 
-	fn parse_declaration(&mut self) -> Result<Statement> {
+	fn parse_declaration(&mut self) -> error::Result<Statement> {
 		if self.advance_if(TokenKind::Fun) {
 			return self.parse_function_declaration();
 		}
@@ -143,9 +64,9 @@ impl<'a> Parser<'a> {
 		self.parse_statement()
 	}
 
-	fn parse_function_declaration(&mut self) -> Result<Statement> {
+	fn parse_function_declaration(&mut self) -> error::Result<Statement> {
 		let location = self.previous().location().clone();
-		let name = Box::new(self.expect(TokenKind::Identifier, "function name")?);
+		let name = self.expect(TokenKind::Identifier, "function name")?;
 
 		self.expect(TokenKind::LeftParen, "'(' after function name")?;
 
@@ -163,12 +84,12 @@ impl<'a> Parser<'a> {
 
 		let body = Rc::new(self.parse_block()?);
 
-		Ok(Statement::FunctionDeclaration { location, name, parameters: parameters.into(), body })
+		Ok(Statement::FunctionDeclaration { location, name, parameters, body })
 	}
 
-	fn parse_variable_declaration(&mut self) -> Result<Statement> {
+	fn parse_variable_declaration(&mut self) -> error::Result<Statement> {
 		let location = self.previous().location().clone();
-		let name = Box::new(self.expect(TokenKind::Identifier, "variable name")?);
+		let name = self.expect(TokenKind::Identifier, "variable name")?;
 
 		let initializer = if self.advance_if(TokenKind::Equal) {
 			Some(Box::new(self.parse_expression()?))
@@ -181,7 +102,7 @@ impl<'a> Parser<'a> {
 		Ok(Statement::VariableDeclaration { location, name, initializer })
 	}
 
-	fn parse_statement(&mut self) -> Result<Statement> {
+	fn parse_statement(&mut self) -> error::Result<Statement> {
 		if self.advance_if(TokenKind::LeftBrace) {
 			return self.parse_block();
 		}
@@ -209,7 +130,7 @@ impl<'a> Parser<'a> {
 		self.parse_expression_statement()
 	}
 
-	fn parse_return_statement(&mut self) -> Result<Statement> {
+	fn parse_return_statement(&mut self) -> error::Result<Statement> {
 		let location = self.previous().location().clone();
 
 		let value = if !self.check(TokenKind::Semicolon) {
@@ -223,7 +144,7 @@ impl<'a> Parser<'a> {
 		Ok(Statement::Return { location, expression: value })
 	}
 
-	fn parse_block(&mut self) -> Result<Statement> {
+	fn parse_block(&mut self) -> error::Result<Statement> {
 		let start_location = self.previous().location().clone();
 
 		let mut statements = Vec::new();
@@ -236,10 +157,10 @@ impl<'a> Parser<'a> {
 
 		let end_location = self.previous().location().clone();
 
-		Ok(Statement::Block { start_location, end_location, statements: statements.into() })
+		Ok(Statement::Block { start_location, end_location, statements })
 	}
 
-	fn parse_for_statement(&mut self) -> Result<Statement> {
+	fn parse_for_statement(&mut self) -> error::Result<Statement> {
 		let location = self.previous().location().clone();
 
 		self.expect(TokenKind::LeftParen, "'(' after 'for'")?;
@@ -274,7 +195,7 @@ impl<'a> Parser<'a> {
 		Ok(Statement::For { location, initializer, condition, increment, body })
 	}
 
-	fn parse_if_statement(&mut self) -> Result<Statement> {
+	fn parse_if_statement(&mut self) -> error::Result<Statement> {
 		let if_location = self.previous().location().clone();
 
 		let condition = Box::new(self.parse_expression()?);
@@ -303,14 +224,14 @@ impl<'a> Parser<'a> {
 		Ok(Statement::If { if_location, condition, then_branch, else_branch })
 	}
 
-	fn parse_print_statement(&mut self) -> Result<Statement> {
+	fn parse_print_statement(&mut self) -> error::Result<Statement> {
 		let location = self.previous().location().clone();
 		let expression = self.parse_expression()?;
 		self.expect(TokenKind::Semicolon, "';' after expression")?;
 		Ok(Statement::Print { location, expression: Box::new(expression) })
 	}
 
-	fn parse_while_statement(&mut self) -> Result<Statement> {
+	fn parse_while_statement(&mut self) -> error::Result<Statement> {
 		let location = self.previous().location().clone();
 		let condition = Box::new(self.parse_expression()?);
 		self.expect(TokenKind::LeftBrace, "'{' after while condition")?;
@@ -318,17 +239,17 @@ impl<'a> Parser<'a> {
 		Ok(Statement::While { location, condition, body })
 	}
 
-	fn parse_expression_statement(&mut self) -> Result<Statement> {
+	fn parse_expression_statement(&mut self) -> error::Result<Statement> {
 		let expression = self.parse_expression()?;
 		self.expect(TokenKind::Semicolon, "';' after expression")?;
 		Ok(Statement::Expression(Box::new(expression)))
 	}
 
-	fn parse_expression(&mut self) -> Result<Expression> {
+	fn parse_expression(&mut self) -> error::Result<Expression> {
 		self.parse_assignment()
 	}
 
-	fn parse_assignment(&mut self) -> Result<Expression> {
+	fn parse_assignment(&mut self) -> error::Result<Expression> {
 		let expression = self.parse_or()?;
 
 		if self.advance_if(TokenKind::Equal) {
@@ -345,13 +266,13 @@ impl<'a> Parser<'a> {
 		Ok(expression)
 	}
 
-	fn parse_or(&mut self) -> Result<Expression> {
+	fn parse_or(&mut self) -> error::Result<Expression> {
 		let mut expression = self.parse_and()?;
 
 		while self.advance_if(TokenKind::Or) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: Box::new(self.previous().clone()),
+				operator: self.previous().clone(),
 				right: Box::new(self.parse_and()?),
 			}
 		}
@@ -359,13 +280,13 @@ impl<'a> Parser<'a> {
 		Ok(expression)
 	}
 
-	fn parse_and(&mut self) -> Result<Expression> {
+	fn parse_and(&mut self) -> error::Result<Expression> {
 		let mut expression = self.parse_equality()?;
 
 		while self.advance_if(TokenKind::And) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: Box::new(self.previous().clone()),
+				operator: self.previous().clone(),
 				right: Box::new(self.parse_equality()?),
 			}
 		}
@@ -373,13 +294,13 @@ impl<'a> Parser<'a> {
 		Ok(expression)
 	}
 
-	fn parse_equality(&mut self) -> Result<Expression> {
+	fn parse_equality(&mut self) -> error::Result<Expression> {
 		let mut expression = self.parse_comparison()?;
 
 		while self.advance_if_any(&[TokenKind::BangEqual, TokenKind::EqualEqual]) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: Box::new(self.previous().clone()),
+				operator: self.previous().clone(),
 				right: Box::new(self.parse_comparison()?),
 			}
 		}
@@ -387,7 +308,7 @@ impl<'a> Parser<'a> {
 		Ok(expression)
 	}
 
-	fn parse_comparison(&mut self) -> Result<Expression> {
+	fn parse_comparison(&mut self) -> error::Result<Expression> {
 		let mut expression = self.parse_term()?;
 
 		while self.advance_if_any(&[
@@ -398,7 +319,7 @@ impl<'a> Parser<'a> {
 		]) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: Box::new(self.previous().clone()),
+				operator: self.previous().clone(),
 				right: Box::new(self.parse_term()?),
 			}
 		}
@@ -406,13 +327,13 @@ impl<'a> Parser<'a> {
 		Ok(expression)
 	}
 
-	fn parse_term(&mut self) -> Result<Expression> {
+	fn parse_term(&mut self) -> error::Result<Expression> {
 		let mut expression = self.parse_factor()?;
 
 		while self.advance_if_any(&[TokenKind::Minus, TokenKind::Plus]) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: Box::new(self.previous().clone()),
+				operator: self.previous().clone(),
 				right: Box::new(self.parse_factor()?),
 			}
 		}
@@ -420,13 +341,13 @@ impl<'a> Parser<'a> {
 		Ok(expression)
 	}
 
-	fn parse_factor(&mut self) -> Result<Expression> {
+	fn parse_factor(&mut self) -> error::Result<Expression> {
 		let mut expression = self.parse_unary()?;
 
 		while self.advance_if_any(&[TokenKind::Slash, TokenKind::Star]) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: Box::new(self.previous().clone()),
+				operator: self.previous().clone(),
 				right: Box::new(self.parse_unary()?),
 			}
 		}
@@ -434,10 +355,10 @@ impl<'a> Parser<'a> {
 		Ok(expression)
 	}
 
-	fn parse_unary(&mut self) -> Result<Expression> {
+	fn parse_unary(&mut self) -> error::Result<Expression> {
 		if self.advance_if_any(&[TokenKind::Bang, TokenKind::Minus]) {
 			Ok(Expression::Unary {
-				operator: Box::new(self.previous().clone()),
+				operator: self.previous().clone(),
 				right: Box::new(self.parse_unary()?),
 			})
 		} else {
@@ -445,7 +366,7 @@ impl<'a> Parser<'a> {
 		}
 	}
 
-	fn parse_call(&mut self) -> Result<Expression> {
+	fn parse_call(&mut self) -> error::Result<Expression> {
 		let mut expression = self.parse_primary()?;
 
 		if self.advance_if(TokenKind::LeftParen) {
@@ -466,14 +387,14 @@ impl<'a> Parser<'a> {
 			expression = Expression::Call {
 				callee: Box::new(expression),
 				arguments_start_location,
-				arguments: arguments.into(),
+				arguments,
 			};
 		}
 
 		Ok(expression)
 	}
 
-	fn parse_primary(&mut self) -> Result<Expression> {
+	fn parse_primary(&mut self) -> error::Result<Expression> {
 		if self.advance_if_any(&[
 			TokenKind::False,
 			TokenKind::True,
@@ -481,7 +402,7 @@ impl<'a> Parser<'a> {
 			TokenKind::Number,
 			TokenKind::String,
 		]) {
-			return Ok(Expression::Literal(Box::new(self.previous().clone())));
+			return Ok(Expression::Literal(self.previous().clone()));
 		}
 
 		if self.advance_if(TokenKind::LeftParen) {
@@ -491,16 +412,38 @@ impl<'a> Parser<'a> {
 		}
 
 		if self.advance_if(TokenKind::Identifier) {
-			return Ok(Expression::Variable(Box::new(self.previous().clone())));
+			return Ok(Expression::Variable(self.previous().clone()));
+		}
+
+		if self.advance_if(TokenKind::Fun) {
+			let location = self.previous().location().clone();
+
+			self.expect(TokenKind::LeftParen, "'(' after fun keyword")?;
+
+			let mut parameters = Vec::new();
+			if !self.check(TokenKind::RightParen) {
+				parameters.push(self.expect(TokenKind::Identifier, "parameter name")?);
+
+				while self.advance_if(TokenKind::Comma) {
+					parameters.push(self.expect(TokenKind::Identifier, "parameter name")?);
+				}
+			}
+
+			self.expect(TokenKind::RightParen, "')' after parameters")?;
+			self.expect(TokenKind::LeftBrace, "'{' before function body")?;
+
+			let body = Rc::new(self.parse_block()?);
+
+			return Ok(Expression::Function { location, parameters, body });
 		}
 
 		Err(ParseError::UnexpectedToken {
 			expected: "expression",
-			actual: Box::new(self.peek().map(Clone::clone).map_err(Clone::clone)),
+			actual: self.peek().cloned().map_err(Clone::clone),
 		})
 	}
 
-	fn peek(&mut self) -> std::result::Result<&Token, &Error> {
+	fn peek(&mut self) -> Result<&Token, &Error> {
 		// Tokens will always end with EndOfFile token
 		self.tokens.peek().unwrap().as_ref()
 	}
@@ -509,11 +452,15 @@ impl<'a> Parser<'a> {
 		matches!(self.peek(), Ok(it) if it.kind == token_kind)
 	}
 
-	fn expect(&mut self, token_kind: TokenKind, expected: &'static str) -> Result<Token> {
+	fn expect(&mut self, token_kind: TokenKind, expected: &'static str) -> error::Result<Token> {
 		self.expect_any(&[token_kind], expected)
 	}
 
-	fn expect_any(&mut self, token_types: &[TokenKind], expected: &'static str) -> Result<Token> {
+	fn expect_any(
+		&mut self,
+		token_types: &[TokenKind],
+		expected: &'static str,
+	) -> error::Result<Token> {
 		for &token_kind in token_types {
 			if self.check(token_kind) {
 				self.advance();
@@ -523,7 +470,7 @@ impl<'a> Parser<'a> {
 
 		Err(ParseError::UnexpectedToken {
 			expected,
-			actual: Box::new(self.peek().cloned().map_err(Clone::clone)),
+			actual: self.peek().cloned().map_err(Clone::clone),
 		})
 	}
 
@@ -561,7 +508,7 @@ impl<'a> Parser<'a> {
 }
 
 impl Iterator for Parser<'_> {
-	type Item = Result<Statement>;
+	type Item = error::Result<Statement>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		if matches!(self.peek(), Ok(token) if token.kind == TokenKind::EndOfFile) {
@@ -579,283 +526,9 @@ impl Iterator for Parser<'_> {
 	}
 }
 
-/////////////////////////////////////////////////////////////////////////////
-// Display
-/////////////////////////////////////////////////////////////////////////////
-
-impl Display for ParseError {
-	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		if f.alternate() {
-			write!(f, "{location} ", location = self.location())?;
-		}
-		match self {
-			ParseError::UnexpectedToken { expected, actual } => match actual.deref() {
-				Ok(token) => write!(f, "Expected {expected} but got {token}"),
-				Err(error) => write!(f, "Expected {expected} but got {error}"),
-			},
-			ParseError::InvalidAssignment { .. } => {
-				write!(f, "Invalid assignment target")
-			}
-		}
-	}
-}
-
-impl Display for Statement {
-	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		let width = f.width().unwrap_or(0);
-
-		match self {
-			Statement::Block { start_location, end_location, statements, .. } => {
-				if f.alternate() {
-					write!(f, "{start_location:width$} ")?;
-				}
-				write!(f, "{{\n")?;
-				stdout().flush().unwrap();
-
-				{
-					let width = width + 1;
-					for statement in statements {
-						if f.alternate() {
-							write!(f, "{statement:#width$}\n")?;
-						} else {
-							write!(f, "{statement:width$}\n")?;
-						}
-					}
-				}
-
-				if f.alternate() {
-					write!(f, "{end_location:width$} ")?;
-				}
-				write!(f, "}}")
-			}
-
-			Statement::Expression(expression) => {
-				if f.alternate() {
-					write!(f, "{location:width$} ", location = expression.location())?;
-				}
-				write!(f, "(expr {expression})")
-			}
-
-			Statement::For { location, initializer, condition, increment, body } => {
-				let initializer = initializer.as_ref().map_or(String::new(), |it| it.to_string());
-				let condition = condition.as_ref().map_or(String::new(), |it| it.to_string());
-				let increment = increment.as_ref().map_or(String::new(), |it| it.to_string());
-
-				if f.alternate() {
-					write!(f, "{location:width$} ")?;
-				}
-
-				write!(f, "for ({initializer}; {condition}; {increment})\n")?;
-
-				if f.alternate() {
-					write!(f, "{body:#width$}")
-				} else {
-					write!(f, "{body:width$}")
-				}
-			}
-
-			Statement::FunctionDeclaration { location, name, parameters, body } => {
-				let Token { text, .. } = name.deref();
-
-				if f.alternate() {
-					write!(f, "{location:width$} ")?;
-				}
-
-				write!(f, "fun {text}(")?;
-
-				for (index, parameter) in parameters.iter().enumerate() {
-					if index != 0 {
-						write!(f, ",")?;
-					}
-
-					let Token { text, .. } = parameter;
-					write!(f, " {text} ")?;
-				}
-
-				write!(f, ")\n")?;
-
-				if f.alternate() {
-					write!(f, "{body:#width$}")
-				} else {
-					write!(f, "{body:width$}")
-				}
-			}
-
-			Statement::If { if_location, condition, then_branch, else_branch } => {
-				if f.alternate() {
-					write!(f, "{if_location:width$} ")?;
-				}
-
-				write!(f, "if {condition}\n")?;
-
-				if f.alternate() {
-					write!(f, "{then_branch:#width$}")?;
-				} else {
-					write!(f, "{then_branch:width$}")?;
-				}
-
-				if let Some((else_location, else_branch)) = else_branch {
-					if f.alternate() {
-						write!(f, "\n{else_location:width$} ")?;
-					}
-
-					write!(f, "\nelse\n")?;
-
-					if f.alternate() {
-						write!(f, "{else_branch:#width$}")?;
-					} else {
-						write!(f, "{else_branch:width$}")?;
-					}
-				}
-				Ok(())
-			}
-
-			Statement::Print { location, expression } => {
-				if f.alternate() {
-					write!(f, "{location:width$} ")?;
-				}
-				write!(f, "(print {expression})")
-			}
-
-			Statement::Return { location, expression: value } => {
-				if f.alternate() {
-					write!(f, "{location:width$} ")?;
-				}
-				if let Some(value) = value {
-					write!(f, "(return {value})")
-				} else {
-					write!(f, "(return)")
-				}
-			}
-
-			Statement::VariableDeclaration { location, name, initializer } => {
-				let Token { text: name, .. } = name.deref();
-
-				if f.alternate() {
-					write!(f, "{location:width$} ")?;
-				}
-				match initializer {
-					Some(expression) => {
-						write!(f, "(vardecl {name} = {expression})")
-					}
-
-					None => write!(f, "(vardecl {name})"),
-				}
-			}
-
-			Statement::While { location, condition, body } => {
-				if f.alternate() {
-					write!(f, "{location:width$} ")?;
-				}
-
-				write!(f, "while {condition}\n")?;
-
-				if f.alternate() {
-					write!(f, "{body:#width$}")
-				} else {
-					write!(f, "{body:width$}")
-				}
-			}
-		}
-	}
-}
-
-impl Display for Expression {
-	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		if f.alternate() {
-			write!(f, "{location} ", location = self.location())?;
-		}
-		match self {
-			Expression::Assignment { name, value } => {
-				let Token { text: name, .. } = name.deref();
-				write!(f, "(assign {name} = {value})")
-			}
-
-			Expression::Binary { left, operator, right } => {
-				let Token { text: operator, .. } = operator.deref();
-				write!(f, "({operator} {left} {right})")
-			}
-
-			Expression::Call { callee, arguments, .. } => {
-				write!(f, "(call {callee}(")?;
-				for (index, argument) in arguments.iter().enumerate() {
-					if index != 0 {
-						write!(f, ", ")?;
-					}
-					write!(f, "{argument}")?;
-				}
-				write!(f, "))")
-			}
-
-			Expression::Literal(token) => {
-				let Token { text, .. } = token.deref();
-				write!(f, "{text}")
-			}
-
-			Expression::Grouping(expression) => write!(f, "(group {expression})"),
-
-			Expression::Unary { operator, right } => {
-				let Token { text: operator, .. } = operator.deref();
-				write!(f, "({operator} {right})")
-			}
-
-			Expression::Variable(name) => {
-				let Token { text: name, .. } = name.deref();
-				write!(f, "(var {name})")
-			}
-		}
-	}
-}
-
-/////////////////////////////////////////////////////////////////////////////
-// Locatable
-/////////////////////////////////////////////////////////////////////////////
-
-impl Locatable for ParseError {
-	fn location(&self) -> &Location {
-		match self {
-			ParseError::UnexpectedToken { actual, .. } => match actual.deref() {
-				Ok(token) => token.location(),
-				Err(error) => error.location(),
-			},
-			ParseError::InvalidAssignment { location, .. } => location,
-		}
-	}
-}
-
-impl Locatable for Statement {
-	fn location(&self) -> &Location {
-		match self {
-			Statement::Block { start_location, .. } => start_location,
-			Statement::Expression(expression) => expression.location(),
-			Statement::For { location, .. } => location,
-			Statement::FunctionDeclaration { location, .. } => location,
-			Statement::If { if_location: location, .. } => location,
-			Statement::Print { location, .. } => location,
-			Statement::Return { location, .. } => location,
-			Statement::VariableDeclaration { name, .. } => name.location(),
-			Statement::While { location, .. } => location,
-		}
-	}
-}
-
-impl Locatable for Expression {
-	fn location(&self) -> &Location {
-		match self {
-			Expression::Assignment { name, .. } => name.location(),
-			Expression::Binary { left, .. } => left.location(),
-			Expression::Call { callee, .. } => callee.location(),
-			Expression::Grouping(expression) => expression.location(),
-			Expression::Literal(token) => token.location(),
-			Expression::Unary { operator, .. } => operator.location(),
-			Expression::Variable(token) => token.location(),
-		}
-	}
-}
-
 #[cfg(test)]
 mod tests {
-	use crate::parse::Parser;
+	use super::*;
 	use crate::tokenize::Tokens;
 
 	#[test]

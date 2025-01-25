@@ -5,6 +5,6 @@ pub enum Value {
 	Nil,
 	Bool(bool),
 	Number(f64),
-	String(Box<str>),
+	String(String),
 	Callable(Callable),
 }

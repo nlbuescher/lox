@@ -1,10 +1,13 @@
-use std::fmt::{Display, Formatter};
 use std::str::Chars;
 
-use crate::location::{Locatable, Location};
+pub use error::{Error, ErrorKind, Result};
+pub use token::{Token, TokenKind};
+
+use crate::location::Location;
 use crate::value::Value;
 
-pub type Result = std::result::Result<Token, Error>;
+mod error;
+mod token;
 
 #[derive(Clone)]
 pub struct Tokens<'a> {
@@ -16,84 +19,6 @@ pub struct Tokens<'a> {
 	start_location: Location,
 	buffer: String,
 }
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Token {
-	location: Location,
-	pub kind: TokenKind,
-	pub text: Box<str>,
-	pub value: Option<Value>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Error {
-	location: Location,
-	pub kind: ErrorKind,
-	pub text: Box<str>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum TokenKind {
-	// Single-character tokens
-	LeftParen,
-	RightParen,
-	LeftBrace,
-	RightBrace,
-	Comma,
-	Dot,
-	Minus,
-	Plus,
-	Semicolon,
-	Slash,
-	Star,
-
-	// One- or two-character tokens
-	Bang,
-	BangEqual,
-	Equal,
-	EqualEqual,
-	Greater,
-	GreaterEqual,
-	Less,
-	LessEqual,
-
-	// Literals
-	Identifier,
-	Number,
-	String,
-
-	// Keywords
-	And,
-	Class,
-	Else,
-	False,
-	Fun,
-	For,
-	If,
-	Nil,
-	Or,
-	Print,
-	Return,
-	Super,
-	This,
-	True,
-	Var,
-	While,
-
-	// Other
-	Comment,
-	EndOfFile,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ErrorKind {
-	UnknownChar,
-	UnterminatedString,
-}
-
-/////////////////////////////////////////////////////////////////////////////
-// Type implementations
-/////////////////////////////////////////////////////////////////////////////
 
 impl<'a> Tokens<'a> {
 	pub fn new(source: &'a str) -> Self {
@@ -110,158 +35,6 @@ impl<'a> Tokens<'a> {
 		}
 	}
 }
-
-impl Token {
-	pub(crate) fn with_text(
-		location: Location,
-		kind: TokenKind,
-		text: impl Into<Box<str>>,
-	) -> Self {
-		Token { location, kind, text: text.into(), value: None }
-	}
-
-	fn with_value(
-		location: Location,
-		kind: TokenKind,
-		text: impl Into<Box<str>>,
-		value: Value,
-	) -> Self {
-		Token { location, kind, text: text.into(), value: Some(value) }
-	}
-}
-
-impl Error {
-	fn new(location: Location, kind: ErrorKind, text: impl Into<Box<str>>) -> Error {
-		Error { location, kind, text: text.into() }
-	}
-}
-
-impl TokenKind {
-	fn as_str(&self) -> &'static str {
-		match self {
-			TokenKind::LeftParen => "LEFT_PAREN",
-			TokenKind::RightParen => "RIGHT_PAREN",
-			TokenKind::LeftBrace => "LEFT_BRACE",
-			TokenKind::RightBrace => "RIGHT_BRACE",
-			TokenKind::Comma => "COMMA",
-			TokenKind::Dot => "DOT",
-			TokenKind::Minus => "MINUS",
-			TokenKind::Plus => "PLUS",
-			TokenKind::Semicolon => "SEMICOLON",
-			TokenKind::Slash => "SLASH",
-			TokenKind::Star => "STAR",
-
-			TokenKind::Bang => "BANG",
-			TokenKind::BangEqual => "BANG_EQUAL",
-			TokenKind::Equal => "EQUAL",
-			TokenKind::EqualEqual => "EQUAL_EQUAL",
-			TokenKind::Greater => "GREATER",
-			TokenKind::GreaterEqual => "GREATER_EQUAL",
-			TokenKind::Less => "LESS",
-			TokenKind::LessEqual => "LESS_EQUAL",
-
-			TokenKind::Identifier => "IDENTIFIER",
-			TokenKind::Number => "NUMBER",
-			TokenKind::String => "STRING",
-
-			TokenKind::And => "AND",
-			TokenKind::Class => "CLASS",
-			TokenKind::Else => "ELSE",
-			TokenKind::False => "FALSE",
-			TokenKind::Fun => "FUN",
-			TokenKind::For => "FOR",
-			TokenKind::If => "IF",
-			TokenKind::Nil => "NIL",
-			TokenKind::Or => "OR",
-			TokenKind::Print => "PRINT",
-			TokenKind::Return => "RETURN",
-			TokenKind::Super => "SUPER",
-			TokenKind::This => "THIS",
-			TokenKind::True => "TRUE",
-			TokenKind::Var => "VAR",
-			TokenKind::While => "WHILE",
-
-			TokenKind::Comment => "COMMENT",
-			TokenKind::EndOfFile => "EOF",
-		}
-	}
-}
-
-impl ErrorKind {
-	fn as_str(&self) -> &'static str {
-		match self {
-			ErrorKind::UnknownChar => "unknown character",
-			ErrorKind::UnterminatedString => "unterminated string",
-		}
-	}
-}
-
-/////////////////////////////////////////////////////////////////////////////
-// Locatable
-/////////////////////////////////////////////////////////////////////////////
-
-impl Locatable for Token {
-	fn location(&self) -> &Location {
-		&self.location
-	}
-}
-
-impl Locatable for Error {
-	fn location(&self) -> &Location {
-		&self.location
-	}
-}
-
-/////////////////////////////////////////////////////////////////////////////
-// Display
-/////////////////////////////////////////////////////////////////////////////
-
-impl Display for Token {
-	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		let Token { location, kind, text, value } = self;
-
-		if f.alternate() {
-			write!(f, "{location} ")?;
-		}
-
-		write!(f, "{kind}")?;
-
-		if !text.is_empty() {
-			write!(f, " '{text}'")?;
-		}
-
-		if let Some(value) = value {
-			write!(f, " {value:?}")?;
-		}
-		Ok(())
-	}
-}
-
-impl Display for Error {
-	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		let Error { location, kind, text } = self;
-		if f.alternate() {
-			write!(f, "{location} ")?;
-		}
-		write!(f, "{kind} '{text}'")
-	}
-}
-
-impl Display for TokenKind {
-	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		f.write_str(self.as_str())
-	}
-}
-
-impl Display for ErrorKind {
-	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		f.write_str(self.as_str())
-	}
-}
-
-/////////////////////////////////////////////////////////////////////////////
-// Tokens implementation
-/////////////////////////////////////////////////////////////////////////////
 
 impl<'a> Tokens<'a> {
 	fn peek(&mut self) -> Option<&char> {
@@ -345,7 +118,7 @@ impl<'a> Tokens<'a> {
 		result
 	}
 
-	fn get_string_token(&mut self) -> Result {
+	fn get_string_token(&mut self) -> error::Result {
 		while self.peek() != Some(&'"') && self.peek() != None {
 			self.advance(true);
 		}
@@ -408,7 +181,7 @@ impl<'a> Tokens<'a> {
 }
 
 impl Iterator for Tokens<'_> {
-	type Item = Result;
+	type Item = error::Result;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		if !self.has_next {
