@@ -1,8 +1,8 @@
-use clap::Parser as ArgParser;
+use clap::Parser;
 use lox::error::Error;
 use lox::{run_file, run_prompt};
 
-#[derive(Debug, clap::Parser)]
+#[derive(Debug, Parser)]
 #[command(name = "lox", about = "Lox Interpreter", version)]
 struct Args {
 	// File to run
