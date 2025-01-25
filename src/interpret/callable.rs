@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::fmt::{Debug, Formatter};
 use std::rc::Rc;
 
@@ -12,7 +11,7 @@ use crate::value::Value;
 
 #[derive(Clone)]
 pub struct Callable {
-	pub(super) scope: Rc<RefCell<Scope>>,
+	pub(super) scope: Scope,
 	pub(super) arguments: Vec<Token>,
 	pub(super) body: Body,
 }
@@ -36,14 +35,15 @@ impl Callable {
 		match self.body {
 			Body::Native(ref body) => body(environment, arguments),
 			Body::Statement(ref body) => {
-				let result =
-					environment.run_in_scope(Scope::with_parent(&self.scope), |environment| {
-						for (name, argument) in self.arguments.iter().zip(arguments) {
-							Scope::define(&mut environment.scope, &name.text, Some(argument));
-						}
+				let scope = Scope::with_parent(&self.scope);
 
-						environment.visit_statement(body)
-					});
+				let result = environment.run_in_scope(scope, |environment| {
+					for (name, argument) in self.arguments.iter().zip(arguments) {
+						environment.scope.borrow_mut().define(&name.text, Some(argument));
+					}
+
+					environment.visit_statement(body)
+				});
 
 				match result {
 					Ok(_) => Ok(Value::Nil),

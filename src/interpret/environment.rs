@@ -13,7 +13,7 @@ use crate::value::Value;
 
 pub struct Environment {
 	output: Rc<RefCell<dyn Write>>,
-	pub(super) scope: Rc<RefCell<Scope>>,
+	pub(super) scope: RefCell<Scope>,
 }
 
 impl Default for Environment {
@@ -26,10 +26,9 @@ impl Environment {
 	pub fn with_output(output: Rc<RefCell<dyn Write>>) -> Self {
 		let scope = Scope::new();
 
-		let mut environment = Environment { output, scope: scope.clone() };
+		let environment = Environment { output, scope: RefCell::new(scope.clone()) };
 
-		Scope::define(
-			&mut environment.scope,
+		environment.scope.borrow_mut().define(
 			"clock",
 			Some(Value::Callable(Callable {
 				scope: scope.clone(),
@@ -52,13 +51,12 @@ impl Environment {
 
 	pub fn run_in_scope<T, E>(
 		&mut self,
-		scope: Rc<RefCell<Scope>>,
+		scope: Scope,
 		block: impl FnOnce(&mut Environment) -> Result<T, E>,
 	) -> Result<T, E> {
-		let previous = self.scope.clone();
-		self.scope = scope;
+		let previous = self.scope.replace(scope);
 		let result = block(self);
-		self.scope = previous;
+		self.scope.replace(previous);
 		result
 	}
 
@@ -107,7 +105,9 @@ impl Visitor<Value> for Environment {
 	}
 
 	fn visit_block(&mut self, statements: &Vec<Statement>) -> Result<Value, Break> {
-		self.run_in_scope(Scope::with_parent(&self.scope), |environment| {
+		let scope = Scope::with_parent(self.scope.borrow().deref());
+
+		self.run_in_scope(scope, |environment| {
 			statements
 				.iter()
 				.try_fold(Value::Nil, |_, statement| environment.visit_statement(statement))
@@ -121,7 +121,9 @@ impl Visitor<Value> for Environment {
 		increment: Option<&Statement>,
 		body: &Statement,
 	) -> Result<Value, Break> {
-		self.run_in_scope(Scope::with_parent(&self.scope), |environment| {
+		let scope = Scope::with_parent(self.scope.borrow().deref());
+
+		self.run_in_scope(scope, |environment| {
 			if let Some(initializer) = initializer {
 				environment.visit_statement(initializer)?;
 			}
@@ -152,7 +154,7 @@ impl Visitor<Value> for Environment {
 	) -> Result<Value, Break> {
 		let function = self.visit_function(parameters, body)?;
 
-		Scope::define(&mut self.scope, &name.text, Some(function));
+		self.scope.borrow_mut().define(&name.text, Some(function));
 
 		Ok(Value::Nil)
 	}
@@ -200,7 +202,7 @@ impl Visitor<Value> for Environment {
 			Some(ref expression) => Some(self.visit_expression(expression)?),
 		};
 
-		Scope::define(&mut self.scope, &name.text, value);
+		self.scope.borrow_mut().define(&name.text, value);
 
 		Ok(Value::Nil)
 	}
@@ -244,7 +246,7 @@ impl Visitor<Value> for Environment {
 	) -> Result<Value, RuntimeError> {
 		let value = self.visit_expression(value)?;
 
-		Scope::assign(&mut self.scope, name, value.clone())?;
+		self.scope.borrow_mut().assign(name, value.clone())?;
 
 		Ok(value)
 	}
@@ -375,7 +377,7 @@ impl Visitor<Value> for Environment {
 		body: &Rc<Statement>,
 	) -> Result<Value, RuntimeError> {
 		Ok(Value::Callable(Callable {
-			scope: self.scope.clone(),
+			scope: self.scope.borrow().clone(),
 			arguments: parameters.clone(),
 			body: Body::Statement(body.clone()),
 		}))
@@ -413,7 +415,7 @@ impl Visitor<Value> for Environment {
 	}
 
 	fn visit_variable(&mut self, name: &Token) -> Result<Value, RuntimeError> {
-		Scope::get(&mut self.scope, name)
+		self.scope.borrow().get(name)
 	}
 }
 
