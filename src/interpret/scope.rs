@@ -6,7 +6,7 @@ use crate::interpret::RuntimeError;
 use crate::tokenize::Token;
 use crate::value::Value;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Scope {
 	parent: Option<Box<Scope>>,
 	values: HashMap<String, RefCell<Option<Value>>>,

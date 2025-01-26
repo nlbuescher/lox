@@ -18,12 +18,8 @@ impl Location {
 
 impl Display for Location {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		const PAD: &str = "";
-
-		let width = f.width().unwrap_or(0);
 		let Location { line, column } = self;
-
 		// 3 characters gets us up to 999, which should be enough for most cases
-		write!(f, "[{line:>3}:{column:<3}]{PAD:width$}")
+		write!(f, "[{line:>3}:{column:<3}]")
 	}
 }

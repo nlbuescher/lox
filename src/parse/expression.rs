@@ -7,13 +7,34 @@ use crate::tokenize::Token;
 
 #[derive(Debug, Clone)]
 pub enum Expression {
-	Assignment { name: Token, value: Box<Expression> },
-	Binary { left: Box<Expression>, operator: Token, right: Box<Expression> },
-	Call { callee: Box<Expression>, arguments_start_location: Location, arguments: Vec<Expression> },
-	Function { location: Location, parameters: Vec<Token>, body: Rc<Statement> },
+	Assignment {
+		name: Token,
+		expression: Box<Expression>,
+	},
+	Binary {
+		left: Box<Expression>,
+		operator: Token,
+		right: Box<Expression>,
+	},
+	Call {
+		callee: Box<Expression>,
+		open_paren: Token,
+		arguments: Vec<Expression>,
+		close_paren: Token,
+	},
+	Function {
+		keyword: Token,
+		open_paren: Token,
+		parameters: Vec<Token>,
+		close_paren: Token,
+		body: Rc<Statement>,
+	},
 	Grouping(Box<Expression>),
 	Literal(Token),
-	Unary { operator: Token, right: Box<Expression> },
+	Unary {
+		operator: Token,
+		expression: Box<Expression>,
+	},
 	Variable(Token),
 }
 
@@ -23,8 +44,8 @@ impl Display for Expression {
 			write!(f, "{location} ", location = self.location())?;
 		}
 		match self {
-			Expression::Assignment { name: Token { text: name, .. }, value } => {
-				write!(f, "(assign {name} = {value})")
+			Expression::Assignment { name: Token { text: name, .. }, expression } => {
+				write!(f, "(assign {name} = {expression})")
 			}
 
 			Expression::Binary { left, operator: Token { text: operator, .. }, right } => {
@@ -43,7 +64,7 @@ impl Display for Expression {
 			}
 
 			Expression::Function { parameters, .. } => {
-				write!(f, "(fn (")?;
+				write!(f, "(fun (")?;
 				for (index, Token { text: parameter, .. }) in parameters.iter().enumerate() {
 					if index != 0 {
 						write!(f, ", ")?;
@@ -59,8 +80,8 @@ impl Display for Expression {
 
 			Expression::Grouping(expression) => write!(f, "(group {expression})"),
 
-			Expression::Unary { operator: Token { text: operator, .. }, right } => {
-				write!(f, "({operator} {right})")
+			Expression::Unary { operator: Token { text: operator, .. }, expression } => {
+				write!(f, "({operator} {expression})")
 			}
 
 			Expression::Variable(Token { text: name, .. }) => {
@@ -76,11 +97,11 @@ impl Locatable for Expression {
 			Expression::Assignment { name, .. } => name.location(),
 			Expression::Binary { left, .. } => left.location(),
 			Expression::Call { callee, .. } => callee.location(),
-			Expression::Function { location, .. } => location,
+			Expression::Function { keyword, .. } => keyword.location(),
 			Expression::Grouping(expression) => expression.location(),
-			Expression::Literal(token) => token.location(),
+			Expression::Literal(literal) => literal.location(),
 			Expression::Unary { operator, .. } => operator.location(),
-			Expression::Variable(token) => token.location(),
+			Expression::Variable(name) => name.location(),
 		}
 	}
 }

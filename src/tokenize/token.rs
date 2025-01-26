@@ -138,7 +138,7 @@ impl Locatable for Token {
 
 impl Display for Token {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		let Token { location, kind, text, value } = self;
+		let Token { location, kind, text, .. } = self;
 
 		if f.alternate() {
 			write!(f, "{location} ")?;
@@ -150,9 +150,6 @@ impl Display for Token {
 			write!(f, " '{text}'")?;
 		}
 
-		if let Some(value) = value {
-			write!(f, " {value:?}")?;
-		}
 		Ok(())
 	}
 }

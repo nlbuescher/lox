@@ -1,13 +1,16 @@
 mod callable;
+mod class;
 mod environment;
 mod error;
+mod function;
 mod scope;
 mod visit;
 
 use std::fmt::{Debug, Display, Formatter};
 use std::io::{stdin, BufRead, Write};
 
-pub use callable::{Body, Callable};
+pub use callable::Callable;
+pub use class::{Class, Instance};
 pub use environment::Environment;
 pub use error::RuntimeError;
 pub use scope::Scope;
@@ -78,13 +81,15 @@ pub fn run(source: &str, env: &mut Environment, verbose: bool) -> Result<(), Err
 	Ok(())
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum TypeKind {
 	Nothing,
 	Bool,
 	Number,
 	String,
 	Callable,
+	Class,
+	Instance(String),
 }
 
 impl Value {
@@ -94,7 +99,9 @@ impl Value {
 			Value::Bool(_) => TypeKind::Bool,
 			Value::Number(_) => TypeKind::Number,
 			Value::String(_) => TypeKind::String,
-			Value::Callable(_) => TypeKind::Callable,
+			Value::Function(_) => TypeKind::Callable,
+			Value::Class(_) => TypeKind::Class,
+			Value::Instance(Instance { class_name }) => TypeKind::Instance(class_name.clone()),
 		}
 	}
 
@@ -104,7 +111,9 @@ impl Value {
 			Value::Bool(value) => *value,
 			Value::Number(value) => *value != 0.0,
 			Value::String(value) => !value.is_empty(),
-			Value::Callable(_) => true,
+			Value::Function(_) => true,
+			Value::Class(_) => true,
+			Value::Instance(_) => true,
 		}
 	}
 
@@ -129,26 +138,18 @@ impl Value {
 			}),
 		}
 	}
-
-	fn to_string(&self) -> String {
-		match self {
-			Value::Nil => "nil".to_string(),
-			Value::Bool(b) => b.to_string(),
-			Value::Number(n) => n.to_string(),
-			Value::String(s) => s.to_string(),
-			Value::Callable(_) => "<callable>".to_string(),
-		}
-	}
 }
 
 impl TypeKind {
-	fn as_str(&self) -> &'static str {
+	fn as_str(&self) -> &str {
 		match self {
 			TypeKind::Nothing => "Nothing",
 			TypeKind::Bool => "Bool",
 			TypeKind::Number => "Number",
 			TypeKind::String => "String",
 			TypeKind::Callable => "Callable",
+			TypeKind::Class => "Class",
+			TypeKind::Instance(class_name) => class_name.as_str(),
 		}
 	}
 }
@@ -181,6 +182,48 @@ thrice(fun(a) {
 });
 ";
 		let expected = "1\n2\n3\n";
+
+		let output = Rc::new(RefCell::new(Vec::new()));
+		let mut env = Environment::with_output(output.clone());
+		run(input, &mut env, false)?;
+		let actual = String::from_utf8(output.borrow().clone()).unwrap();
+
+		assert_eq!(expected, actual);
+
+		Ok(())
+	}
+
+	#[test]
+	fn class() -> Result<(), Error> {
+		let input = "\
+class DevonshireCream {
+  serveOn() {
+    return \"Scones\";
+  }
+}
+
+print DevonshireCream;
+";
+		let expected = "DevonshireCream\n";
+
+		let output = Rc::new(RefCell::new(Vec::new()));
+		let mut env = Environment::with_output(output.clone());
+		run(input, &mut env, false)?;
+		let actual = String::from_utf8(output.borrow().clone()).unwrap();
+
+		assert_eq!(expected, actual);
+
+		Ok(())
+	}
+
+	#[test]
+	fn instance() -> Result<(), Error> {
+		let input = "\
+class Bagel {}
+var bagel = Bagel();
+print bagel;
+";
+		let expected = "Bagel instance\n";
 
 		let output = Rc::new(RefCell::new(Vec::new()));
 		let mut env = Environment::with_output(output.clone());

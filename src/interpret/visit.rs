@@ -1,7 +1,6 @@
 use std::rc::Rc;
 
 use crate::interpret::error::{Break, RuntimeError};
-use crate::location::Location;
 use crate::parse::{Expression, Statement};
 use crate::tokenize::Token;
 
@@ -9,6 +8,12 @@ pub trait Visitor<T> {
 	fn visit_statement(&mut self, statement: &Statement) -> Result<T, Break>;
 
 	fn visit_block(&mut self, statements: &Vec<Statement>) -> Result<T, Break>;
+
+	fn visit_class_declaration(
+		&mut self,
+		name: &Token,
+		methods: &Vec<Statement>,
+	) -> Result<T, Break>;
 
 	fn visit_for(
 		&mut self,
@@ -46,7 +51,11 @@ pub trait Visitor<T> {
 
 	fn visit_expression(&mut self, expression: &Expression) -> Result<T, RuntimeError>;
 
-	fn visit_assignment(&mut self, name: &Token, value: &Expression) -> Result<T, RuntimeError>;
+	fn visit_assignment(
+		&mut self,
+		name: &Token,
+		expression: &Expression,
+	) -> Result<T, RuntimeError>;
 
 	fn visit_binary(
 		&mut self,
@@ -58,7 +67,7 @@ pub trait Visitor<T> {
 	fn visit_call(
 		&mut self,
 		callee: &Expression,
-		location: &Location,
+		open_paren: &Token,
 		arguments: &Vec<Expression>,
 	) -> Result<T, RuntimeError>;
 

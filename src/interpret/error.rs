@@ -5,6 +5,7 @@ use crate::location::{Locatable, Location};
 use crate::tokenize::Token;
 use crate::value::Value;
 
+#[derive(Debug)]
 pub enum Break {
 	Return(Value),
 	Error(RuntimeError),

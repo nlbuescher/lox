@@ -4,9 +4,10 @@ use std::ops::Deref;
 use std::rc::Rc;
 
 use crate::interpret::error::{Break, RuntimeError};
+use crate::interpret::function::{Function, NativeFunction};
 use crate::interpret::visit::Visitor;
-use crate::interpret::{Body, Callable, Scope};
-use crate::location::Location;
+use crate::interpret::{Class, Scope};
+use crate::location::Locatable;
 use crate::parse::{Expression, Statement};
 use crate::tokenize::{Token, TokenKind};
 use crate::value::Value;
@@ -30,20 +31,16 @@ impl Environment {
 
 		environment.scope.borrow_mut().define(
 			"clock",
-			Some(Value::Callable(Callable {
-				scope: scope.clone(),
-				arguments: Vec::new(),
-				body: Body::Native(Rc::new(|_, _| {
-					use std::time::{SystemTime, UNIX_EPOCH};
+			Some(Value::Function(Rc::new(NativeFunction::new(|_, _| {
+				use std::time::{SystemTime, UNIX_EPOCH};
 
-					let now = SystemTime::now();
-					let duration = now.duration_since(UNIX_EPOCH).unwrap();
-					let seconds = duration.as_secs() as f64;
-					let nanos = duration.subsec_nanos() as f64 / 1_000_000_000.0;
+				let now = SystemTime::now();
+				let duration = now.duration_since(UNIX_EPOCH).unwrap();
+				let seconds = duration.as_secs() as f64;
+				let nanos = duration.subsec_nanos() as f64 / 1_000_000_000.0;
 
-					Ok(Value::Number(seconds + nanos))
-				})),
-			})),
+				Ok(Value::Number(seconds + nanos))
+			})))),
 		);
 
 		environment
@@ -72,6 +69,10 @@ impl Visitor<Value> for Environment {
 	fn visit_statement(&mut self, statement: &Statement) -> Result<Value, Break> {
 		match statement {
 			Statement::Block { statements, .. } => self.visit_block(statements),
+
+			Statement::ClassDeclaration { name, methods, .. } => {
+				self.visit_class_declaration(name, methods)
+			}
 
 			Statement::Expression(expression) => Ok(self.visit_expression(expression)?),
 
@@ -112,6 +113,18 @@ impl Visitor<Value> for Environment {
 				.iter()
 				.try_fold(Value::Nil, |_, statement| environment.visit_statement(statement))
 		})
+	}
+
+	fn visit_class_declaration(
+		&mut self,
+		name: &Token,
+		_methods: &Vec<Statement>,
+	) -> Result<Value, Break> {
+		self.scope
+			.borrow_mut()
+			.define(&name.text, Some(Value::Class(Class::new(name.text.clone()))));
+
+		Ok(Value::Nil)
 	}
 
 	fn visit_for(
@@ -217,14 +230,14 @@ impl Visitor<Value> for Environment {
 
 	fn visit_expression(&mut self, expression: &Expression) -> Result<Value, RuntimeError> {
 		match expression {
-			Expression::Assignment { name, value } => self.visit_assignment(name, value),
+			Expression::Assignment { name, expression } => self.visit_assignment(name, expression),
 
 			Expression::Binary { left, operator, right } => {
 				self.visit_binary(left, operator, right)
 			}
 
-			Expression::Call { callee, arguments_start_location, arguments, .. } => {
-				self.visit_call(callee, arguments_start_location, arguments)
+			Expression::Call { callee, open_paren, arguments, .. } => {
+				self.visit_call(callee, open_paren, arguments)
 			}
 
 			Expression::Function { parameters, body, .. } => self.visit_function(parameters, body),
@@ -233,7 +246,7 @@ impl Visitor<Value> for Environment {
 
 			Expression::Grouping(expression) => self.visit_grouping(expression),
 
-			Expression::Unary { operator, right } => self.visit_unary(operator, right),
+			Expression::Unary { operator, expression } => self.visit_unary(operator, expression),
 
 			Expression::Variable(name) => self.visit_variable(name),
 		}
@@ -242,9 +255,9 @@ impl Visitor<Value> for Environment {
 	fn visit_assignment(
 		&mut self,
 		name: &Token,
-		value: &Expression,
+		expression: &Expression,
 	) -> Result<Value, RuntimeError> {
-		let value = self.visit_expression(value)?;
+		let value = self.visit_expression(expression)?;
 
 		self.scope.borrow_mut().assign(name, value.clone())?;
 
@@ -346,7 +359,7 @@ impl Visitor<Value> for Environment {
 	fn visit_call(
 		&mut self,
 		callee: &Expression,
-		location: &Location,
+		open_paren: &Token,
 		arguments: &Vec<Expression>,
 	) -> Result<Value, RuntimeError> {
 		let callee = self.visit_expression(callee)?;
@@ -356,18 +369,22 @@ impl Visitor<Value> for Environment {
 			.map(|argument| self.visit_expression(argument))
 			.collect::<Result<Vec<Value>, RuntimeError>>()?;
 
-		if let Value::Callable(callable) = callee {
-			if arguments.len() == callable.arity() {
-				Ok(callable.call(self, arguments)?)
-			} else {
-				Err(RuntimeError::UnexpectedNumberOfArguments {
-					location: location.clone(),
-					expected: callable.arity(),
-					actual: arguments.len(),
-				})
-			}
+		let callable = if let Value::Function(function) = callee {
+			function
+		} else if let Value::Class(class) = callee {
+			Rc::new(class)
 		} else {
-			Err(RuntimeError::NotCallable(location.clone()))
+			return Err(RuntimeError::NotCallable(open_paren.location().clone()));
+		};
+
+		if arguments.len() == callable.arity() {
+			Ok(callable.call(self, &arguments)?)
+		} else {
+			Err(RuntimeError::UnexpectedNumberOfArguments {
+				location: open_paren.location().clone(),
+				expected: callable.arity(),
+				actual: arguments.len(),
+			})
 		}
 	}
 
@@ -376,11 +393,12 @@ impl Visitor<Value> for Environment {
 		parameters: &Vec<Token>,
 		body: &Rc<Statement>,
 	) -> Result<Value, RuntimeError> {
-		Ok(Value::Callable(Callable {
-			scope: self.scope.borrow().clone(),
-			arguments: parameters.clone(),
-			body: Body::Statement(body.clone()),
-		}))
+		Ok(Value::Function(Rc::new(Function::new(
+			None,
+			self.scope.borrow().clone(),
+			parameters.clone(),
+			body.clone(),
+		))))
 	}
 
 	fn visit_grouping(&mut self, expression: &Expression) -> Result<Value, RuntimeError> {
