@@ -105,7 +105,7 @@ impl Visitor<Value> for Environment {
 		}
 	}
 
-	fn visit_block(&mut self, statements: &Vec<Statement>) -> Result<Value, Break> {
+	fn visit_block(&mut self, statements: &[Statement]) -> Result<Value, Break> {
 		let scope = Scope::with_parent(self.scope.borrow().deref());
 
 		self.run_in_scope(scope, |environment| {
@@ -118,7 +118,7 @@ impl Visitor<Value> for Environment {
 	fn visit_class_declaration(
 		&mut self,
 		name: &Token,
-		_methods: &Vec<Statement>,
+		_methods: &[Statement],
 	) -> Result<Value, Break> {
 		self.scope
 			.borrow_mut()
@@ -162,7 +162,7 @@ impl Visitor<Value> for Environment {
 	fn visit_function_declaration(
 		&mut self,
 		name: &Token,
-		parameters: &Vec<Token>,
+		parameters: &[Token],
 		body: &Rc<Statement>,
 	) -> Result<Value, Break> {
 		let function = self.visit_function(parameters, body)?;
@@ -191,7 +191,7 @@ impl Visitor<Value> for Environment {
 
 	fn visit_print(&mut self, expression: &Expression) -> Result<Value, Break> {
 		let value = self.visit_expression(expression)?;
-		writeln!(self, "{}", value.to_string()).map_err(RuntimeError::from)?;
+		writeln!(self, "{value}").map_err(RuntimeError::from)?;
 		Ok(Value::Nil)
 	}
 
@@ -212,7 +212,7 @@ impl Visitor<Value> for Environment {
 	) -> Result<Value, Break> {
 		let value = match initializer {
 			None => None,
-			Some(ref expression) => Some(self.visit_expression(expression)?),
+			Some(expression) => Some(self.visit_expression(expression)?),
 		};
 
 		self.scope.borrow_mut().define(&name.text, value);
@@ -272,9 +272,7 @@ impl Visitor<Value> for Environment {
 	) -> Result<Value, RuntimeError> {
 		if matches!(operator.kind, TokenKind::And | TokenKind::Or) {
 			let left_value = self.visit_expression(left)?;
-			if operator.kind == TokenKind::Or && left_value.is_truthy() {
-				Ok(left_value)
-			} else if !left_value.is_truthy() {
+			if operator.kind == TokenKind::Or && left_value.is_truthy() || !left_value.is_truthy() {
 				Ok(left_value)
 			} else {
 				self.visit_expression(right)
@@ -360,7 +358,7 @@ impl Visitor<Value> for Environment {
 		&mut self,
 		callee: &Expression,
 		open_paren: &Token,
-		arguments: &Vec<Expression>,
+		arguments: &[Expression],
 	) -> Result<Value, RuntimeError> {
 		let callee = self.visit_expression(callee)?;
 
@@ -390,13 +388,13 @@ impl Visitor<Value> for Environment {
 
 	fn visit_function(
 		&mut self,
-		parameters: &Vec<Token>,
+		parameters: &[Token],
 		body: &Rc<Statement>,
 	) -> Result<Value, RuntimeError> {
 		Ok(Value::Function(Rc::new(Function::new(
 			None,
 			self.scope.borrow().clone(),
-			parameters.clone(),
+			Vec::from(parameters),
 			body.clone(),
 		))))
 	}

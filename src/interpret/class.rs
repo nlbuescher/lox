@@ -36,7 +36,7 @@ impl Callable for Class {
 		0
 	}
 
-	fn call(&self, _: &mut Environment, _: &Vec<Value>) -> Result<Value, RuntimeError> {
+	fn call(&self, _: &mut Environment, _: &[Value]) -> Result<Value, RuntimeError> {
 		Ok(Value::Instance(Instance { class_name: self.name.clone() }))
 	}
 }

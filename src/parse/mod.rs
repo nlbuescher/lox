@@ -1,3 +1,7 @@
+mod error;
+mod expression;
+mod statement;
+
 use std::iter::Peekable;
 use std::rc::Rc;
 
@@ -8,10 +12,6 @@ pub use statement::Statement;
 use crate::location::Locatable;
 use crate::tokenize;
 use crate::tokenize::{Error, Token, TokenKind, Tokens};
-
-mod error;
-mod expression;
-mod statement;
 
 #[derive(Clone)]
 pub struct Parser<'a> {

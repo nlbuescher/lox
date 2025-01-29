@@ -69,15 +69,15 @@ impl Display for Statement {
 				if f.alternate() {
 					write!(f, "{location} ", location = open_brace.location())?;
 				}
-				write!(f, "{PAD:width$}{{\n")?;
+				writeln!(f, "{PAD:width$}{{")?;
 
 				{
 					let width = width + 1;
 					for statement in statements {
 						if f.alternate() {
-							write!(f, "{statement:#width$}\n")?;
+							writeln!(f, "{statement:#width$}")?;
 						} else {
-							write!(f, "{statement:width$}\n")?;
+							writeln!(f, "{statement:width$}")?;
 						}
 					}
 				}
@@ -104,13 +104,13 @@ impl Display for Statement {
 				if f.alternate() {
 					write!(f, "{location} ", location = open_brace.location())?;
 				}
-				write!(f, "{PAD:width$}{{\n")?;
+				writeln!(f, "{PAD:width$}{{")?;
 
 				{
 					let width = width + 1;
 
 					for method in methods {
-						write!(f, "{method:width$}\n")?;
+						writeln!(f, "{method:width$}")?;
 					}
 				}
 
@@ -163,7 +163,7 @@ impl Display for Statement {
 					write!(f, "{parameter}")?;
 				}
 
-				write!(f, ")\n")?;
+				writeln!(f, ")")?;
 
 				if f.alternate() {
 					write!(f, "{body:#width$}")
@@ -177,7 +177,7 @@ impl Display for Statement {
 					write!(f, "{location} ", location = keyword.location())?;
 				}
 
-				write!(f, "{PAD:width$}if {condition}\n")?;
+				writeln!(f, "{PAD:width$}if {condition}")?;
 
 				if f.alternate() {
 					write!(f, "{then_branch:#width$}")?;
@@ -186,13 +186,13 @@ impl Display for Statement {
 				}
 
 				if let Some((keyword, else_branch)) = else_branch {
-					write!(f, "\n")?;
+					writeln!(f)?;
 
 					if f.alternate() {
 						write!(f, "{location}", location = keyword.location())?;
 					}
 
-					write!(f, "{PAD:width$}else\n")?;
+					writeln!(f, "{PAD:width$}else")?;
 
 					if f.alternate() {
 						write!(f, "{else_branch:#width$}")?;
@@ -249,7 +249,7 @@ impl Display for Statement {
 					write!(f, "{location} ", location = keyword.location())?;
 				}
 
-				write!(f, "{PAD:width$}while {condition}\n")?;
+				writeln!(f, "{PAD:width$}while {condition}")?;
 
 				if f.alternate() {
 					write!(f, "{body:#width$}")

@@ -7,13 +7,9 @@ use crate::tokenize::Token;
 pub trait Visitor<T> {
 	fn visit_statement(&mut self, statement: &Statement) -> Result<T, Break>;
 
-	fn visit_block(&mut self, statements: &Vec<Statement>) -> Result<T, Break>;
+	fn visit_block(&mut self, statements: &[Statement]) -> Result<T, Break>;
 
-	fn visit_class_declaration(
-		&mut self,
-		name: &Token,
-		methods: &Vec<Statement>,
-	) -> Result<T, Break>;
+	fn visit_class_declaration(&mut self, name: &Token, methods: &[Statement]) -> Result<T, Break>;
 
 	fn visit_for(
 		&mut self,
@@ -26,7 +22,7 @@ pub trait Visitor<T> {
 	fn visit_function_declaration(
 		&mut self,
 		name: &Token,
-		parameters: &Vec<Token>,
+		parameters: &[Token],
 		body: &Rc<Statement>,
 	) -> Result<T, Break>;
 
@@ -68,12 +64,12 @@ pub trait Visitor<T> {
 		&mut self,
 		callee: &Expression,
 		open_paren: &Token,
-		arguments: &Vec<Expression>,
+		arguments: &[Expression],
 	) -> Result<T, RuntimeError>;
 
 	fn visit_function(
 		&mut self,
-		parameters: &Vec<Token>,
+		parameters: &[Token],
 		body: &Rc<Statement>,
 	) -> Result<T, RuntimeError>;
 

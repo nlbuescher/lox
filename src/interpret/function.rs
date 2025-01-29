@@ -18,8 +18,10 @@ pub struct Function {
 }
 
 pub struct NativeFunction {
-	pub body: Rc<dyn Fn(&mut Environment, &Vec<Value>) -> Result<Value, RuntimeError>>,
+	pub body: Rc<NativeBody>,
 }
+
+type NativeBody = dyn Fn(&mut Environment, &[Value]) -> Result<Value, RuntimeError>;
 
 impl Function {
 	pub fn new(
@@ -35,7 +37,7 @@ impl Function {
 impl NativeFunction {
 	pub fn new<F>(body: F) -> Self
 	where
-		F: Fn(&mut Environment, &Vec<Value>) -> Result<Value, RuntimeError> + 'static,
+		F: Fn(&mut Environment, &[Value]) -> Result<Value, RuntimeError> + 'static,
 	{
 		NativeFunction { body: Rc::new(body) }
 	}
@@ -62,7 +64,7 @@ impl Callable for Function {
 		self.parameters.len()
 	}
 
-	fn call(&self, env: &mut Environment, args: &Vec<Value>) -> Result<Value, RuntimeError> {
+	fn call(&self, env: &mut Environment, args: &[Value]) -> Result<Value, RuntimeError> {
 		let scope = Scope::with_parent(&self.scope);
 
 		let result = env.run_in_scope(scope, |environment| {
@@ -86,7 +88,7 @@ impl Callable for NativeFunction {
 		0
 	}
 
-	fn call(&self, env: &mut Environment, args: &Vec<Value>) -> Result<Value, RuntimeError> {
+	fn call(&self, env: &mut Environment, args: &[Value]) -> Result<Value, RuntimeError> {
 		self.body.deref()(env, args)
 	}
 }

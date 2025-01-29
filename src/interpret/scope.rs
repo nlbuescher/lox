@@ -12,6 +12,12 @@ pub struct Scope {
 	values: HashMap<String, RefCell<Option<Value>>>,
 }
 
+impl Default for Scope {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
 impl Scope {
 	pub fn new() -> Self {
 		Scope { parent: None, values: HashMap::new() }

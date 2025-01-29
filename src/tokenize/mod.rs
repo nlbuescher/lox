@@ -1,3 +1,7 @@
+mod error;
+mod token;
+
+use std::mem::replace;
 use std::str::Chars;
 
 pub use error::{Error, ErrorKind, Result};
@@ -5,9 +9,6 @@ pub use token::{Token, TokenKind};
 
 use crate::location::Location;
 use crate::value::Value;
-
-mod error;
-mod token;
 
 #[derive(Clone)]
 pub struct Tokens<'a> {
@@ -36,7 +37,13 @@ impl<'a> Tokens<'a> {
 	}
 }
 
-impl<'a> Tokens<'a> {
+#[derive(Debug, PartialEq)]
+enum Whitespace {
+	Ignore,
+	Include,
+}
+
+impl Tokens<'_> {
 	fn peek(&mut self) -> Option<&char> {
 		self.current.as_ref()
 	}
@@ -45,11 +52,10 @@ impl<'a> Tokens<'a> {
 		self.next.as_ref()
 	}
 
-	fn advance(&mut self, include_whitespace: bool) -> Option<char> {
+	fn advance(&mut self, whitespace: Whitespace) -> Option<char> {
 		let result = self.current;
 
-		self.current = self.next;
-		self.next = self.source.next();
+		self.current = replace(&mut self.next, self.source.next());
 
 		if let Some(c) = result {
 			// add char to buffer
@@ -68,9 +74,8 @@ impl<'a> Tokens<'a> {
 				_ => self.current_location.column += 1,
 			}
 
-			if !include_whitespace && c.is_whitespace() {
-				self.start_location = self.current_location.clone();
-				self.buffer.clear();
+			if whitespace == Whitespace::Ignore && c.is_whitespace() {
+				self.reset_buffer();
 			}
 		}
 
@@ -79,12 +84,13 @@ impl<'a> Tokens<'a> {
 
 	/// returns: whether the tokenizer advanced
 	fn advance_if(&mut self, expected: char) -> bool {
-		if self.peek() != Some(&expected) {
-			false
-		} else {
-			self.advance(true);
-			true
+		let result = self.peek().take_if(|it| **it == expected).is_some();
+
+		if result {
+			self.advance(Whitespace::Ignore);
 		}
+
+		result
 	}
 
 	pub fn reset_buffer(&mut self) {
@@ -118,16 +124,16 @@ impl<'a> Tokens<'a> {
 		result
 	}
 
-	fn get_string_token(&mut self) -> error::Result {
-		while self.peek() != Some(&'"') && self.peek() != None {
-			self.advance(true);
+	fn get_string_token(&mut self) -> Result {
+		while self.peek().take_if(|it| **it != '"').is_some() {
+			self.advance(Whitespace::Include);
 		}
 
-		if self.peek() == None {
+		if self.peek().is_none() {
 			Err(self.get_error(ErrorKind::UnterminatedString))
 		} else {
 			// consume the closing quote
-			self.advance(true);
+			self.advance(Whitespace::Ignore);
 
 			Ok(self.get_value_token(
 				TokenKind::String,
@@ -137,16 +143,18 @@ impl<'a> Tokens<'a> {
 	}
 
 	fn get_number_token(&mut self) -> Token {
-		while self.peek().take_if(|it| it.is_ascii_digit()) != None {
-			self.advance(false);
+		while self.peek().take_if(|it| it.is_ascii_digit()).is_some() {
+			self.advance(Whitespace::Ignore);
 		}
 
-		if self.peek() == Some(&'.') && self.peek_next().take_if(|it| it.is_ascii_digit()) != None {
+		if self.peek().take_if(|it| **it == '.').is_some()
+			&& self.peek_next().take_if(|it| it.is_ascii_digit()).is_some()
+		{
 			// Consume the decimal point
-			self.advance(false);
+			self.advance(Whitespace::Ignore);
 
-			while self.peek().take_if(|it| it.is_ascii_digit()) != None {
-				self.advance(false);
+			while self.peek().take_if(|it| it.is_ascii_digit()).is_some() {
+				self.advance(Whitespace::Ignore);
 			}
 		}
 
@@ -154,8 +162,8 @@ impl<'a> Tokens<'a> {
 	}
 
 	fn get_identifier_token(&mut self) -> Token {
-		while self.peek().take_if(|it| **it == '_' || it.is_ascii_alphanumeric()) != None {
-			self.advance(false);
+		while self.peek().take_if(|it| **it == '_' || it.is_ascii_alphanumeric()).is_some() {
+			self.advance(Whitespace::Ignore);
 		}
 
 		match self.buffer.as_str() {
@@ -181,14 +189,14 @@ impl<'a> Tokens<'a> {
 }
 
 impl Iterator for Tokens<'_> {
-	type Item = error::Result;
+	type Item = Result;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		if !self.has_next {
 			return None;
 		}
 
-		let next = self.advance(false);
+		let next = self.advance(Whitespace::Ignore);
 
 		if next.is_none() {
 			self.has_next = false;
@@ -233,8 +241,8 @@ impl Iterator for Tokens<'_> {
 
 			'/' => {
 				if self.advance_if('/') {
-					while self.peek() != Some(&'\n') && self.peek() != None {
-						self.advance(true);
+					while self.peek().take_if(|it| **it != '\n').is_some() {
+						self.advance(Whitespace::Include);
 					}
 					Some(Ok(self.get_token(TokenKind::Comment)))
 				} else {
