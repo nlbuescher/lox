@@ -6,7 +6,7 @@ use std::rc::Rc;
 use crate::interpret::error::{Break, RuntimeError};
 use crate::interpret::function::{Function, NativeFunction};
 use crate::interpret::visit::Visitor;
-use crate::interpret::{Class, Scope};
+use crate::interpret::{Class, Scope, TypeKind};
 use crate::location::Locatable;
 use crate::parse::{Expression, Statement};
 use crate::tokenize::{Token, TokenKind};
@@ -242,9 +242,11 @@ impl Visitor<Value> for Environment {
 
 			Expression::Function { parameters, body, .. } => self.visit_function(parameters, body),
 
-			Expression::Literal(literal) => self.visit_literal(literal),
+			Expression::Get { object, property } => self.visit_get(object, property),
 
 			Expression::Grouping(expression) => self.visit_grouping(expression),
+
+			Expression::Literal(literal) => self.visit_literal(literal),
 
 			Expression::Unary { operator, expression } => self.visit_unary(operator, expression),
 
@@ -397,6 +399,20 @@ impl Visitor<Value> for Environment {
 			Vec::from(parameters),
 			body.clone(),
 		))))
+	}
+
+	fn visit_get(&mut self, object: &Expression, property: &Token) -> Result<Value, RuntimeError> {
+		let object = self.visit_expression(object)?;
+
+		if let Value::Instance(instance) = object {
+			instance.get(property)
+		} else {
+			Err(RuntimeError::TypeError {
+				location: property.location().clone(),
+				expected: TypeKind::Instance(String::from("any")),
+				actual: object.type_kind(),
+			})
+		}
 	}
 
 	fn visit_grouping(&mut self, expression: &Expression) -> Result<Value, RuntimeError> {

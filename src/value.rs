@@ -29,7 +29,7 @@ impl Display for Value {
 			Value::String(s) => write!(f, "{s}"),
 			Value::Function(function) => f.write_str(&function.to_string()),
 			Value::Class(Class { name, .. }) => f.write_str(name),
-			Value::Instance(Instance { class_name }) => write!(f, "{class_name} instance"),
+			Value::Instance(Instance { class_name, .. }) => write!(f, "{class_name} instance"),
 		}
 	}
 }

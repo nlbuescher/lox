@@ -21,9 +21,8 @@ impl From<RuntimeError> for Break {
 pub enum RuntimeError {
 	Io(std::io::Error),
 	TypeError { location: Location, expected: TypeKind, actual: TypeKind },
-	UndefinedVariable(Token),
-	UninitializedVariable(Token),
-	UnexpectedVoid(Location),
+	UndefinedValue(Token),
+	UninitializedValue(Token),
 	NotCallable(Location),
 	UnexpectedNumberOfArguments { location: Location, expected: usize, actual: usize },
 }
@@ -46,15 +45,13 @@ impl Display for RuntimeError {
 				write!(f, "Expected {expected} but got {actual}")
 			}
 
-			RuntimeError::UndefinedVariable(name) => {
-				write!(f, "Undefined variable '{name}'", name = name.text)
+			RuntimeError::UndefinedValue(name) => {
+				write!(f, "'{name}' is undefined", name = name.text)
 			}
 
-			RuntimeError::UninitializedVariable(name) => {
-				write!(f, "Uninitialized variable '{name}'", name = name.text)
+			RuntimeError::UninitializedValue(name) => {
+				write!(f, "'{name}' is uninitialized", name = name.text)
 			}
-
-			RuntimeError::UnexpectedVoid(_) => write!(f, "Unexpected void"),
 
 			RuntimeError::NotCallable(_) => write!(f, "Can only call functions and classes"),
 
@@ -70,9 +67,8 @@ impl Locatable for RuntimeError {
 		match self {
 			RuntimeError::Io(_) => &Location { line: 0, column: 0 },
 			RuntimeError::TypeError { location, .. } => location,
-			RuntimeError::UndefinedVariable(name) => name.location(),
-			RuntimeError::UninitializedVariable(name) => name.location(),
-			RuntimeError::UnexpectedVoid(location) => location,
+			RuntimeError::UndefinedValue(name) => name.location(),
+			RuntimeError::UninitializedValue(name) => name.location(),
 			RuntimeError::NotCallable(location) => location,
 			RuntimeError::UnexpectedNumberOfArguments { location, .. } => location,
 		}

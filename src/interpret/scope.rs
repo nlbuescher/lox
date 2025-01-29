@@ -32,14 +32,14 @@ impl Scope {
 			if let Some(value) = value.borrow().deref() {
 				return Ok(value.clone());
 			}
-			return Err(RuntimeError::UninitializedVariable(name.clone()));
+			return Err(RuntimeError::UninitializedValue(name.clone()));
 		}
 
 		if let Some(ref parent) = self.parent {
 			return parent.get(name);
 		}
 
-		Err(RuntimeError::UndefinedVariable(name.clone()))
+		Err(RuntimeError::UndefinedValue(name.clone()))
 	}
 
 	pub fn define(&mut self, name: impl Into<String>, value: Option<Value>) {
@@ -61,6 +61,6 @@ impl Scope {
 			return parent.assign(name, value);
 		}
 
-		Err(RuntimeError::UndefinedVariable(name.clone()))
+		Err(RuntimeError::UndefinedValue(name.clone()))
 	}
 }

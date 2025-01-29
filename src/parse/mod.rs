@@ -407,6 +407,9 @@ impl<'a> Parser<'a> {
 				arguments,
 				close_paren,
 			};
+		} else if self.advance_if(TokenKind::Dot) {
+			let name = self.expect(TokenKind::Identifier, "property name after '.'")?;
+			expression = Expression::Get { object: Box::new(expression), property: name };
 		}
 
 		Ok(expression)

@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 
 use crate::interpret::{Callable, Environment, RuntimeError};
+use crate::tokenize::Token;
 use crate::value::Value;
 
 #[derive(Debug, Clone)]
@@ -11,11 +13,25 @@ pub struct Class {
 #[derive(Debug, Clone)]
 pub struct Instance {
 	pub class_name: String,
+	fields: HashMap<String, Value>,
 }
 
 impl Class {
 	pub fn new(name: String) -> Self {
 		Class { name: name.clone() }
+	}
+}
+
+impl Instance {
+	fn new(class: &Class) -> Self {
+		Instance { class_name: class.name.clone(), fields: HashMap::new() }
+	}
+
+	pub fn get(&self, name: &Token) -> Result<Value, RuntimeError> {
+		self.fields
+			.get(&name.text)
+			.cloned()
+			.ok_or_else(|| RuntimeError::UndefinedValue(name.clone()))
 	}
 }
 
@@ -37,6 +53,6 @@ impl Callable for Class {
 	}
 
 	fn call(&self, _: &mut Environment, _: &[Value]) -> Result<Value, RuntimeError> {
-		Ok(Value::Instance(Instance { class_name: self.name.clone() }))
+		Ok(Value::Instance(Instance::new(self)))
 	}
 }

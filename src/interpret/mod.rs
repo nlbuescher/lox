@@ -101,7 +101,7 @@ impl Value {
 			Value::String(_) => TypeKind::String,
 			Value::Function(_) => TypeKind::Callable,
 			Value::Class(_) => TypeKind::Class,
-			Value::Instance(Instance { class_name }) => TypeKind::Instance(class_name.clone()),
+			Value::Instance(Instance { class_name, .. }) => TypeKind::Instance(class_name.clone()),
 		}
 	}
 

@@ -73,6 +73,8 @@ pub trait Visitor<T> {
 		body: &Rc<Statement>,
 	) -> Result<T, RuntimeError>;
 
+	fn visit_get(&mut self, object: &Expression, property: &Token) -> Result<T, RuntimeError>;
+
 	fn visit_grouping(&mut self, expression: &Expression) -> Result<T, RuntimeError>;
 
 	fn visit_literal(&mut self, literal: &Token) -> Result<T, RuntimeError>;

@@ -29,6 +29,10 @@ pub enum Expression {
 		close_paren: Token,
 		body: Rc<Statement>,
 	},
+	Get {
+		object: Box<Expression>,
+		property: Token,
+	},
 	Grouping(Box<Expression>),
 	Literal(Token),
 	Unary {
@@ -74,11 +78,15 @@ impl Display for Expression {
 				write!(f, "))")
 			}
 
-			Expression::Literal(Token { text: literal, .. }) => {
-				write!(f, "{literal}")
+			Expression::Get { object, property: Token { text: property, .. } } => {
+				write!(f, "{object}.{property}")
 			}
 
 			Expression::Grouping(expression) => write!(f, "(group {expression})"),
+
+			Expression::Literal(Token { text: literal, .. }) => {
+				write!(f, "{literal}")
+			}
 
 			Expression::Unary { operator: Token { text: operator, .. }, expression } => {
 				write!(f, "({operator} {expression})")
@@ -98,6 +106,7 @@ impl Locatable for Expression {
 			Expression::Binary { left, .. } => left.location(),
 			Expression::Call { callee, .. } => callee.location(),
 			Expression::Function { keyword, .. } => keyword.location(),
+			Expression::Get { property, .. } => property.location(),
 			Expression::Grouping(expression) => expression.location(),
 			Expression::Literal(literal) => literal.location(),
 			Expression::Unary { operator, .. } => operator.location(),
