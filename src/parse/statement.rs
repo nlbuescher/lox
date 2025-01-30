@@ -1,59 +1,59 @@
 use std::fmt::{Display, Formatter};
 use std::rc::Rc;
 
-use crate::location::{Locatable, Location};
+use crate::location::{Locate, Location};
 use crate::parse::Expression;
 use crate::tokenize::Token;
 
 #[derive(Debug, Clone)]
 pub enum Statement {
 	Block {
-		open_brace: Token,
+		open_brace: Box<Token>,
 		statements: Vec<Statement>,
-		close_brace: Token,
+		close_brace: Box<Token>,
 	},
 	ClassDeclaration {
-		keyword: Token,
-		name: Token,
-		open_brace: Token,
+		keyword: Box<Token>,
+		name: Box<Token>,
+		open_brace: Box<Token>,
 		methods: Vec<Statement>,
-		close_brace: Token,
+		close_brace: Box<Token>,
 	},
 	Expression(Box<Expression>),
 	For {
-		keyword: Token,
+		keyword: Box<Token>,
 		initializer: Option<Box<Statement>>,
 		condition: Option<Box<Expression>>,
 		increment: Option<Box<Statement>>,
 		body: Box<Statement>,
 	},
 	FunctionDeclaration {
-		keyword: Token,
-		name: Token,
+		keyword: Box<Token>,
+		name: Box<Token>,
 		parameters: Vec<Token>,
 		body: Rc<Statement>,
 	},
 	If {
-		keyword: Token,
+		keyword: Box<Token>,
 		condition: Box<Expression>,
 		then_branch: Box<Statement>,
 		else_branch: Option<(Token, Box<Statement>)>,
 	},
 	Print {
-		keyword: Token,
+		keyword: Box<Token>,
 		expression: Box<Expression>,
 	},
 	Return {
-		keyword: Token,
+		keyword: Box<Token>,
 		expression: Option<Box<Expression>>,
 	},
 	VariableDeclaration {
-		keyword: Token,
-		name: Token,
+		keyword: Box<Token>,
+		name: Box<Token>,
 		initializer: Option<Box<Expression>>,
 	},
 	While {
-		keyword: Token,
+		keyword: Box<Token>,
 		condition: Box<Expression>,
 		body: Box<Statement>,
 	},
@@ -67,7 +67,7 @@ impl Display for Statement {
 		match self {
 			Statement::Block { open_brace, statements, close_brace, .. } => {
 				if f.alternate() {
-					write!(f, "{location} ", location = open_brace.location())?;
+					write!(f, "{location} ", location = open_brace.locate())?;
 				}
 				writeln!(f, "{PAD:width$}{{")?;
 
@@ -83,26 +83,20 @@ impl Display for Statement {
 				}
 
 				if f.alternate() {
-					write!(f, "{location} ", location = close_brace.location())?;
+					write!(f, "{location} ", location = close_brace.locate())?;
 				}
 				write!(f, "{PAD:width$}}}")
 			}
 
-			Statement::ClassDeclaration {
-				keyword,
-				name: Token { text: name, .. },
-				open_brace,
-				methods,
-				close_brace,
-			} => {
+			Statement::ClassDeclaration { keyword, name, open_brace, methods, close_brace } => {
 				if f.alternate() {
-					write!(f, "{location} ", location = keyword.location())?;
+					write!(f, "{location} ", location = keyword.locate())?;
 				}
 
-				write!(f, "{PAD:width$}class {name}")?;
+				write!(f, "{PAD:width$}class {name}", name = name.text)?;
 
 				if f.alternate() {
-					write!(f, "{location} ", location = open_brace.location())?;
+					write!(f, "{location} ", location = open_brace.locate())?;
 				}
 				writeln!(f, "{PAD:width$}{{")?;
 
@@ -115,14 +109,14 @@ impl Display for Statement {
 				}
 
 				if f.alternate() {
-					write!(f, "{location} ", location = close_brace.location())?;
+					write!(f, "{location} ", location = close_brace.locate())?;
 				}
 				write!(f, "{PAD:width$}}}")
 			}
 
 			Statement::Expression(expression) => {
 				if f.alternate() {
-					write!(f, "{location} ", location = expression.location())?;
+					write!(f, "{location} ", location = expression.locate())?;
 				}
 				write!(f, "{PAD:width$}(expr {expression})")
 			}
@@ -133,7 +127,7 @@ impl Display for Statement {
 				let increment = increment.as_ref().map_or(String::new(), |it| it.to_string());
 
 				if f.alternate() {
-					write!(f, "{location} ", location = keyword.location())?;
+					write!(f, "{location} ", location = keyword.locate())?;
 				}
 
 				write!(f, "{PAD:width$}for({initializer}; {condition}; {increment})")?;
@@ -147,20 +141,20 @@ impl Display for Statement {
 
 			Statement::FunctionDeclaration {
 				keyword,
-				name: Token { text: name, .. },
+				name,
 				parameters,
 				body,
 			} => {
 				if f.alternate() {
-					write!(f, "{location} ", location = keyword.location())?;
+					write!(f, "{location} ", location = keyword.locate())?;
 				}
-				write!(f, "{PAD:width$}fun {name}(")?;
+				write!(f, "{PAD:width$}fun {name}(", name = name.text)?;
 
-				for (index, Token { text: parameter, .. }) in parameters.iter().enumerate() {
+				for (index, parameter) in parameters.iter().enumerate() {
 					if index != 0 {
 						write!(f, ", ")?;
 					}
-					write!(f, "{parameter}")?;
+					write!(f, "{parameter}", parameter = parameter.text)?;
 				}
 
 				writeln!(f, ")")?;
@@ -174,7 +168,7 @@ impl Display for Statement {
 
 			Statement::If { keyword, condition, then_branch, else_branch } => {
 				if f.alternate() {
-					write!(f, "{location} ", location = keyword.location())?;
+					write!(f, "{location} ", location = keyword.locate())?;
 				}
 
 				writeln!(f, "{PAD:width$}if {condition}")?;
@@ -189,7 +183,7 @@ impl Display for Statement {
 					writeln!(f)?;
 
 					if f.alternate() {
-						write!(f, "{location}", location = keyword.location())?;
+						write!(f, "{location}", location = keyword.locate())?;
 					}
 
 					writeln!(f, "{PAD:width$}else")?;
@@ -205,14 +199,14 @@ impl Display for Statement {
 
 			Statement::Print { keyword, expression } => {
 				if f.alternate() {
-					write!(f, "{location} ", location = keyword.location())?;
+					write!(f, "{location} ", location = keyword.locate())?;
 				}
 				write!(f, "{PAD:width$}(print {expression})")
 			}
 
 			Statement::Return { keyword, expression } => {
 				if f.alternate() {
-					write!(f, "{location} ", location = keyword.location())?;
+					write!(f, "{location} ", location = keyword.locate())?;
 				}
 
 				write!(f, "{PAD:width$}")?;
@@ -226,15 +220,16 @@ impl Display for Statement {
 
 			Statement::VariableDeclaration {
 				keyword,
-				name: Token { text: name, .. },
+				name,
 				initializer,
 			} => {
 				if f.alternate() {
-					write!(f, "{location} ", location = keyword.location())?;
+					write!(f, "{location} ", location = keyword.locate())?;
 				}
 
 				write!(f, "{PAD:width$}")?;
 
+				let name = &name.text;
 				match initializer {
 					Some(expression) => {
 						write!(f, "(vardecl {name} = {expression})")
@@ -246,7 +241,7 @@ impl Display for Statement {
 
 			Statement::While { keyword, condition, body } => {
 				if f.alternate() {
-					write!(f, "{location} ", location = keyword.location())?;
+					write!(f, "{location} ", location = keyword.locate())?;
 				}
 
 				writeln!(f, "{PAD:width$}while {condition}")?;
@@ -261,19 +256,19 @@ impl Display for Statement {
 	}
 }
 
-impl Locatable for Statement {
-	fn location(&self) -> &Location {
+impl Locate for Statement {
+	fn locate(&self) -> &Location {
 		match self {
-			Statement::Block { open_brace, .. } => open_brace.location(),
-			Statement::ClassDeclaration { keyword, .. } => keyword.location(),
-			Statement::Expression(expression) => expression.location(),
-			Statement::For { keyword, .. } => keyword.location(),
-			Statement::FunctionDeclaration { keyword, .. } => keyword.location(),
-			Statement::If { keyword, .. } => keyword.location(),
-			Statement::Print { keyword, .. } => keyword.location(),
-			Statement::Return { keyword, .. } => keyword.location(),
-			Statement::VariableDeclaration { name, .. } => name.location(),
-			Statement::While { keyword, .. } => keyword.location(),
+			Statement::Block { open_brace, .. } => open_brace.locate(),
+			Statement::ClassDeclaration { keyword, .. } => keyword.locate(),
+			Statement::Expression(expression) => expression.locate(),
+			Statement::For { keyword, .. } => keyword.locate(),
+			Statement::FunctionDeclaration { keyword, .. } => keyword.locate(),
+			Statement::If { keyword, .. } => keyword.locate(),
+			Statement::Print { keyword, .. } => keyword.locate(),
+			Statement::Return { keyword, .. } => keyword.locate(),
+			Statement::VariableDeclaration { name, .. } => name.locate(),
+			Statement::While { keyword, .. } => keyword.locate(),
 		}
 	}
 }

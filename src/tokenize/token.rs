@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter};
 
-use crate::location::{Locatable, Location};
+use crate::location::{Locate, Location};
 use crate::value::Value;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -130,8 +130,8 @@ impl TokenKind {
 	}
 }
 
-impl Locatable for Token {
-	fn location(&self) -> &Location {
+impl Locate for Token {
+	fn locate(&self) -> &Location {
 		&self.location
 	}
 }

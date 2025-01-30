@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 
-use crate::interpret::{Callable, Environment, RuntimeError};
+use crate::error::Error;
+use crate::interpret::{Callable, Environment};
 use crate::tokenize::Token;
 use crate::value::Value;
 
@@ -27,11 +28,8 @@ impl Instance {
 		Instance { class_name: class.name.clone(), fields: HashMap::new() }
 	}
 
-	pub fn get(&self, name: &Token) -> Result<Value, RuntimeError> {
-		self.fields
-			.get(&name.text)
-			.cloned()
-			.ok_or_else(|| RuntimeError::UndefinedValue(name.clone()))
+	pub fn get(&self, name: &Token) -> Result<Value, Error> {
+		self.fields.get(&name.text).cloned().ok_or_else(|| Error::undefined_value(name))
 	}
 }
 
@@ -52,7 +50,7 @@ impl Callable for Class {
 		0
 	}
 
-	fn call(&self, _: &mut Environment, _: &[Value]) -> Result<Value, RuntimeError> {
+	fn call(&self, _: &mut Environment, _: &[Value]) -> Result<Value, Error> {
 		Ok(Value::Instance(Instance::new(self)))
 	}
 }

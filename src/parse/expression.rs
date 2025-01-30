@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::rc::Rc;
 
-use crate::location::{Locatable, Location};
+use crate::location::{Locate, Location};
 use crate::parse::Statement;
 use crate::tokenize::Token;
 
@@ -45,7 +45,7 @@ pub enum Expression {
 impl Display for Expression {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		if f.alternate() {
-			write!(f, "{location} ", location = self.location())?;
+			write!(f, "{location} ", location = self.locate())?;
 		}
 		match self {
 			Expression::Assignment { name: Token { text: name, .. }, expression } => {
@@ -99,18 +99,18 @@ impl Display for Expression {
 	}
 }
 
-impl Locatable for Expression {
-	fn location(&self) -> &Location {
+impl Locate for Expression {
+	fn locate(&self) -> &Location {
 		match self {
-			Expression::Assignment { name, .. } => name.location(),
-			Expression::Binary { left, .. } => left.location(),
-			Expression::Call { callee, .. } => callee.location(),
-			Expression::Function { keyword, .. } => keyword.location(),
-			Expression::Get { property, .. } => property.location(),
-			Expression::Grouping(expression) => expression.location(),
-			Expression::Literal(literal) => literal.location(),
-			Expression::Unary { operator, .. } => operator.location(),
-			Expression::Variable(name) => name.location(),
+			Expression::Assignment { name, .. } => name.locate(),
+			Expression::Binary { left, .. } => left.locate(),
+			Expression::Call { callee, .. } => callee.locate(),
+			Expression::Function { keyword, .. } => keyword.locate(),
+			Expression::Get { property, .. } => property.locate(),
+			Expression::Grouping(expression) => expression.locate(),
+			Expression::Literal(literal) => literal.locate(),
+			Expression::Unary { operator, .. } => operator.locate(),
+			Expression::Variable(name) => name.locate(),
 		}
 	}
 }

@@ -1,41 +1,21 @@
-use std::fmt::{Display, Formatter};
-
-use crate::location::{Locatable, Location};
+use crate::error::Error;
+use crate::location::{Locate, Location};
 use crate::tokenize;
 
-pub type Result<T> = std::result::Result<T, ParseError>;
-
-#[derive(Debug)]
-pub enum ParseError {
-	UnexpectedToken { expected: &'static str, actual: tokenize::Result },
-	InvalidAssignment { location: Location },
-}
-
-impl Display for ParseError {
-	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		if f.alternate() {
-			write!(f, "{location} ", location = self.location())?;
-		}
-		match self {
-			ParseError::UnexpectedToken { expected, actual } => match actual {
-				Ok(token) => write!(f, "Expected {expected} but got {token}"),
-				Err(error) => write!(f, "Expected {expected} but got {error}"),
-			},
-			ParseError::InvalidAssignment { .. } => {
-				write!(f, "Invalid assignment target")
-			}
-		}
+impl Error {
+	pub(super) fn unexpected_token(expected: &str, actual: &tokenize::Result) -> Self {
+		let location = match actual {
+			Ok(token) => token.locate().clone(),
+			Err(error) => error.locate().clone(),
+		};
+		let actual = match actual {
+			Ok(token) => token.to_string(),
+			Err(error) => error.to_string(),
+		};
+		Error::Lox(Box::new((location, format!("Expected {expected} but got {actual}"))))
 	}
-}
 
-impl Locatable for ParseError {
-	fn location(&self) -> &Location {
-		match self {
-			ParseError::UnexpectedToken { actual, .. } => match actual {
-				Ok(token) => token.location(),
-				Err(error) => error.location(),
-			},
-			ParseError::InvalidAssignment { location, .. } => location,
-		}
+	pub(super) fn invalid_assignment(location: Location) -> Self {
+		Error::Lox(Box::new((location, String::from("Invalid assignment target"))))
 	}
 }

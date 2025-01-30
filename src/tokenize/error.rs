@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter};
 
-use crate::location::{Locatable, Location};
+use crate::location::{Locate, Location};
 use crate::tokenize::Token;
 
 pub type Result = std::result::Result<Token, Error>;
@@ -33,8 +33,8 @@ impl ErrorKind {
 	}
 }
 
-impl Locatable for Error {
-	fn location(&self) -> &Location {
+impl Locate for Error {
+	fn locate(&self) -> &Location {
 		&self.location
 	}
 }

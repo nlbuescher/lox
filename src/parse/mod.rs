@@ -5,13 +5,13 @@ mod statement;
 use std::iter::Peekable;
 use std::rc::Rc;
 
-pub use error::{ParseError, Result};
 pub use expression::Expression;
 pub use statement::Statement;
 
-use crate::location::Locatable;
+use crate::error::{Error, Result};
+use crate::location::Locate;
 use crate::tokenize;
-use crate::tokenize::{Error, Token, TokenKind, Tokens};
+use crate::tokenize::{Token, TokenKind, Tokens};
 
 #[derive(Clone)]
 pub struct Parser<'a> {
@@ -36,7 +36,7 @@ impl<'a> Parser<'a> {
 				break;
 			}
 
-			if self.peek().is_ok_and(|it| {
+			if self.peek().as_ref().is_ok_and(|it| {
 				matches!(
 					it.kind,
 					TokenKind::Class
@@ -70,23 +70,23 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_class_declaration(&mut self) -> Result<Statement> {
-		let keyword = self.previous();
-		let name = self.expect(TokenKind::Identifier, "class name")?;
-		let open_brace = self.expect(TokenKind::LeftBrace, "'{' before class body")?;
+		let keyword = Box::new(self.previous());
+		let name = Box::new(self.expect(TokenKind::Identifier, "class name")?);
+		let open_brace = Box::new(self.expect(TokenKind::LeftBrace, "'{' before class body")?);
 
 		let mut methods = Vec::new();
 		while !self.check(TokenKind::RightBrace) {
 			methods.push(self.parse_function_declaration()?);
 		}
 
-		let close_brace = self.expect(TokenKind::RightBrace, "'}' after class body")?;
+		let close_brace = Box::new(self.expect(TokenKind::RightBrace, "'}' after class body")?);
 
 		Ok(Statement::ClassDeclaration { keyword, name, open_brace, methods, close_brace })
 	}
 
 	fn parse_function_declaration(&mut self) -> Result<Statement> {
-		let keyword = self.previous();
-		let name = self.expect(TokenKind::Identifier, "function name")?;
+		let keyword = Box::new(self.previous());
+		let name = Box::new(self.expect(TokenKind::Identifier, "function name")?);
 
 		self.expect(TokenKind::LeftParen, "'(' after function name")?;
 
@@ -108,8 +108,8 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_variable_declaration(&mut self) -> Result<Statement> {
-		let keyword = self.previous();
-		let name = self.expect(TokenKind::Identifier, "variable name")?;
+		let keyword = Box::new(self.previous());
+		let name = Box::new(self.expect(TokenKind::Identifier, "variable name")?);
 
 		let initializer = if self.advance_if(TokenKind::Equal) {
 			Some(Box::new(self.parse_expression()?))
@@ -151,7 +151,7 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_return_statement(&mut self) -> Result<Statement> {
-		let keyword = self.previous();
+		let keyword = Box::new(self.previous());
 
 		let expression = if !self.check(TokenKind::Semicolon) {
 			Some(Box::new(self.parse_expression()?))
@@ -165,20 +165,20 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_block(&mut self) -> Result<Statement> {
-		let open_brace = self.previous();
+		let open_brace = Box::new(self.previous());
 
 		let mut statements = Vec::new();
 		while !self.check(TokenKind::RightBrace) {
 			statements.push(self.parse_declaration()?);
 		}
 
-		let close_brace = self.expect(TokenKind::RightBrace, "'}' after block")?;
+		let close_brace = Box::new(self.expect(TokenKind::RightBrace, "'}' after block")?);
 
 		Ok(Statement::Block { open_brace, statements, close_brace })
 	}
 
 	fn parse_for_statement(&mut self) -> Result<Statement> {
-		let keyword = self.previous();
+		let keyword = Box::new(self.previous());
 
 		self.expect(TokenKind::LeftParen, "'(' after 'for'")?;
 
@@ -213,7 +213,7 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_if_statement(&mut self) -> Result<Statement> {
-		let keyword = self.previous();
+		let keyword = Box::new(self.previous());
 
 		let condition = Box::new(self.parse_expression()?);
 
@@ -242,14 +242,14 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_print_statement(&mut self) -> Result<Statement> {
-		let keyword = self.previous();
+		let keyword = Box::new(self.previous());
 		let expression = self.parse_expression()?;
 		self.expect(TokenKind::Semicolon, "';' after expression")?;
 		Ok(Statement::Print { keyword, expression: Box::new(expression) })
 	}
 
 	fn parse_while_statement(&mut self) -> Result<Statement> {
-		let keyword = self.previous();
+		let keyword = Box::new(self.previous());
 		let condition = Box::new(self.parse_expression()?);
 		self.expect(TokenKind::LeftBrace, "'{' after while condition")?;
 		let body = Box::new(self.parse_block()?);
@@ -276,7 +276,7 @@ impl<'a> Parser<'a> {
 			return if let Expression::Variable(name) = expression {
 				Ok(Expression::Assignment { name, expression: Box::new(value) })
 			} else {
-				Err(ParseError::InvalidAssignment { location: equals.location().clone() })
+				Err(Error::invalid_assignment(equals.locate().clone()))
 			};
 		}
 
@@ -459,15 +459,12 @@ impl<'a> Parser<'a> {
 			return Ok(Expression::Function { keyword, open_paren, parameters, close_paren, body });
 		}
 
-		Err(ParseError::UnexpectedToken {
-			expected: "expression",
-			actual: self.peek().cloned().map_err(Clone::clone),
-		})
+		Err(Error::unexpected_token("expression", self.peek()))
 	}
 
-	fn peek(&mut self) -> std::result::Result<&Token, &Error> {
+	fn peek(&mut self) -> &tokenize::Result {
 		// Tokens will always end with EndOfFile token
-		self.tokens.peek().unwrap().as_ref()
+		self.tokens.peek().unwrap()
 	}
 
 	fn check(&mut self, token_kind: TokenKind) -> bool {
@@ -486,10 +483,7 @@ impl<'a> Parser<'a> {
 			}
 		}
 
-		Err(ParseError::UnexpectedToken {
-			expected,
-			actual: self.peek().cloned().map_err(Clone::clone),
-		})
+		Err(Error::unexpected_token(expected, self.peek()))
 	}
 
 	fn advance(&mut self) {

@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::Deref;
 
-use crate::interpret::RuntimeError;
+use crate::error::Error;
 use crate::tokenize::Token;
 use crate::value::Value;
 
@@ -27,19 +27,19 @@ impl Scope {
 		Scope { parent: Some(Box::new(parent.clone())), values: HashMap::new() }
 	}
 
-	pub fn get(&self, name: &Token) -> Result<Value, RuntimeError> {
+	pub fn get(&self, name: &Token) -> Result<Value, Error> {
 		if let Some(value) = self.values.get(&name.text) {
 			if let Some(value) = value.borrow().deref() {
 				return Ok(value.clone());
 			}
-			return Err(RuntimeError::UninitializedValue(name.clone()));
+			return Err(Error::uninitialized_value(name));
 		}
 
 		if let Some(ref parent) = self.parent {
 			return parent.get(name);
 		}
 
-		Err(RuntimeError::UndefinedValue(name.clone()))
+		Err(Error::undefined_value(name))
 	}
 
 	pub fn define(&mut self, name: impl Into<String>, value: Option<Value>) {
@@ -51,7 +51,7 @@ impl Scope {
 		}
 	}
 
-	pub fn assign(&mut self, name: &Token, value: Value) -> Result<(), RuntimeError> {
+	pub fn assign(&mut self, name: &Token, value: Value) -> Result<(), Error> {
 		if let Some(variable) = self.values.get_mut(&name.text) {
 			variable.replace(Some(value));
 			return Ok(());
@@ -61,6 +61,6 @@ impl Scope {
 			return parent.assign(name, value);
 		}
 
-		Err(RuntimeError::UndefinedValue(name.clone()))
+		Err(Error::undefined_value(name))
 	}
 }

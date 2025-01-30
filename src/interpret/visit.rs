@@ -1,8 +1,9 @@
 use std::rc::Rc;
 
-use crate::interpret::error::{Break, RuntimeError};
+use crate::interpret::error::Break;
 use crate::parse::{Expression, Statement};
 use crate::tokenize::Token;
+use crate::Error;
 
 pub trait Visitor<T> {
 	fn visit_statement(&mut self, statement: &Statement) -> Result<T, Break>;
@@ -45,41 +46,33 @@ pub trait Visitor<T> {
 
 	fn visit_while(&mut self, condition: &Expression, body: &Statement) -> Result<T, Break>;
 
-	fn visit_expression(&mut self, expression: &Expression) -> Result<T, RuntimeError>;
+	fn visit_expression(&mut self, expression: &Expression) -> Result<T, Error>;
 
-	fn visit_assignment(
-		&mut self,
-		name: &Token,
-		expression: &Expression,
-	) -> Result<T, RuntimeError>;
+	fn visit_assignment(&mut self, name: &Token, expression: &Expression) -> Result<T, Error>;
 
 	fn visit_binary(
 		&mut self,
 		left: &Expression,
 		operator: &Token,
 		right: &Expression,
-	) -> Result<T, RuntimeError>;
+	) -> Result<T, Error>;
 
 	fn visit_call(
 		&mut self,
 		callee: &Expression,
 		open_paren: &Token,
 		arguments: &[Expression],
-	) -> Result<T, RuntimeError>;
+	) -> Result<T, Error>;
 
-	fn visit_function(
-		&mut self,
-		parameters: &[Token],
-		body: &Rc<Statement>,
-	) -> Result<T, RuntimeError>;
+	fn visit_function(&mut self, parameters: &[Token], body: &Rc<Statement>) -> Result<T, Error>;
 
-	fn visit_get(&mut self, object: &Expression, property: &Token) -> Result<T, RuntimeError>;
+	fn visit_get(&mut self, object: &Expression, property: &Token) -> Result<T, Error>;
 
-	fn visit_grouping(&mut self, expression: &Expression) -> Result<T, RuntimeError>;
+	fn visit_grouping(&mut self, expression: &Expression) -> Result<T, Error>;
 
-	fn visit_literal(&mut self, literal: &Token) -> Result<T, RuntimeError>;
+	fn visit_literal(&mut self, literal: &Token) -> Result<T, Error>;
 
-	fn visit_unary(&mut self, operator: &Token, right: &Expression) -> Result<T, RuntimeError>;
+	fn visit_unary(&mut self, operator: &Token, right: &Expression) -> Result<T, Error>;
 
-	fn visit_variable(&mut self, name: &Token) -> Result<T, RuntimeError>;
+	fn visit_variable(&mut self, name: &Token) -> Result<T, Error>;
 }

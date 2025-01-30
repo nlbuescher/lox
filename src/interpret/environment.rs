@@ -3,11 +3,12 @@ use std::io::{stdout, Write};
 use std::ops::Deref;
 use std::rc::Rc;
 
-use crate::interpret::error::{Break, RuntimeError};
+use crate::error::Error;
+use crate::interpret::error::Break;
 use crate::interpret::function::{Function, NativeFunction};
 use crate::interpret::visit::Visitor;
 use crate::interpret::{Class, Scope, TypeKind};
-use crate::location::Locatable;
+use crate::location::Locate;
 use crate::parse::{Expression, Statement};
 use crate::tokenize::{Token, TokenKind};
 use crate::value::Value;
@@ -57,7 +58,7 @@ impl Environment {
 		result
 	}
 
-	pub fn execute(&mut self, statement: &Statement) -> Result<Value, RuntimeError> {
+	pub fn execute(&mut self, statement: &Statement) -> Result<Value, Error> {
 		self.visit_statement(statement).map_err(|error| match error {
 			Break::Error(error) => error,
 			Break::Return(_) => unreachable!("If you've landed here, the parser allowed a return statement outside of a function")
@@ -191,7 +192,7 @@ impl Visitor<Value> for Environment {
 
 	fn visit_print(&mut self, expression: &Expression) -> Result<Value, Break> {
 		let value = self.visit_expression(expression)?;
-		writeln!(self, "{value}").map_err(RuntimeError::from)?;
+		writeln!(self, "{value}").map_err(Error::from)?;
 		Ok(Value::Nil)
 	}
 
@@ -228,7 +229,7 @@ impl Visitor<Value> for Environment {
 		Ok(Value::Nil)
 	}
 
-	fn visit_expression(&mut self, expression: &Expression) -> Result<Value, RuntimeError> {
+	fn visit_expression(&mut self, expression: &Expression) -> Result<Value, Error> {
 		match expression {
 			Expression::Assignment { name, expression } => self.visit_assignment(name, expression),
 
@@ -254,11 +255,7 @@ impl Visitor<Value> for Environment {
 		}
 	}
 
-	fn visit_assignment(
-		&mut self,
-		name: &Token,
-		expression: &Expression,
-	) -> Result<Value, RuntimeError> {
+	fn visit_assignment(&mut self, name: &Token, expression: &Expression) -> Result<Value, Error> {
 		let value = self.visit_expression(expression)?;
 
 		self.scope.borrow_mut().assign(name, value.clone())?;
@@ -271,7 +268,7 @@ impl Visitor<Value> for Environment {
 		left: &Expression,
 		operator: &Token,
 		right: &Expression,
-	) -> Result<Value, RuntimeError> {
+	) -> Result<Value, Error> {
 		if matches!(operator.kind, TokenKind::And | TokenKind::Or) {
 			let left_value = self.visit_expression(left)?;
 			if operator.kind == TokenKind::Or && left_value.is_truthy() || !left_value.is_truthy() {
@@ -361,30 +358,30 @@ impl Visitor<Value> for Environment {
 		callee: &Expression,
 		open_paren: &Token,
 		arguments: &[Expression],
-	) -> Result<Value, RuntimeError> {
+	) -> Result<Value, Error> {
 		let callee = self.visit_expression(callee)?;
 
 		let arguments = arguments
 			.iter()
 			.map(|argument| self.visit_expression(argument))
-			.collect::<Result<Vec<Value>, RuntimeError>>()?;
+			.collect::<Result<Vec<Value>, Error>>()?;
 
 		let callable = if let Value::Function(function) = callee {
 			function
 		} else if let Value::Class(class) = callee {
 			Rc::new(class)
 		} else {
-			return Err(RuntimeError::NotCallable(open_paren.location().clone()));
+			return Err(Error::not_callable(open_paren.locate()));
 		};
 
 		if arguments.len() == callable.arity() {
 			Ok(callable.call(self, &arguments)?)
 		} else {
-			Err(RuntimeError::UnexpectedNumberOfArguments {
-				location: open_paren.location().clone(),
-				expected: callable.arity(),
-				actual: arguments.len(),
-			})
+			Err(Error::unexpected_number_of_arguments(
+				open_paren.locate(),
+				callable.arity(),
+				arguments.len(),
+			))
 		}
 	}
 
@@ -392,7 +389,7 @@ impl Visitor<Value> for Environment {
 		&mut self,
 		parameters: &[Token],
 		body: &Rc<Statement>,
-	) -> Result<Value, RuntimeError> {
+	) -> Result<Value, Error> {
 		Ok(Value::Function(Rc::new(Function::new(
 			None,
 			self.scope.borrow().clone(),
@@ -401,25 +398,25 @@ impl Visitor<Value> for Environment {
 		))))
 	}
 
-	fn visit_get(&mut self, object: &Expression, property: &Token) -> Result<Value, RuntimeError> {
+	fn visit_get(&mut self, object: &Expression, property: &Token) -> Result<Value, Error> {
 		let object = self.visit_expression(object)?;
 
 		if let Value::Instance(instance) = object {
 			instance.get(property)
 		} else {
-			Err(RuntimeError::TypeError {
-				location: property.location().clone(),
-				expected: TypeKind::Instance(String::from("any")),
-				actual: object.type_kind(),
-			})
+			Err(Error::type_error(
+				property.locate(),
+				TypeKind::Instance(String::from("any")),
+				object.type_kind(),
+			))
 		}
 	}
 
-	fn visit_grouping(&mut self, expression: &Expression) -> Result<Value, RuntimeError> {
+	fn visit_grouping(&mut self, expression: &Expression) -> Result<Value, Error> {
 		self.visit_expression(expression)
 	}
 
-	fn visit_literal(&mut self, literal: &Token) -> Result<Value, RuntimeError> {
+	fn visit_literal(&mut self, literal: &Token) -> Result<Value, Error> {
 		match literal.kind {
 			TokenKind::Nil => Ok(Value::Nil),
 			TokenKind::True => Ok(Value::Bool(true)),
@@ -430,7 +427,7 @@ impl Visitor<Value> for Environment {
 		}
 	}
 
-	fn visit_unary(&mut self, operator: &Token, right: &Expression) -> Result<Value, RuntimeError> {
+	fn visit_unary(&mut self, operator: &Token, right: &Expression) -> Result<Value, Error> {
 		let right_value = self.visit_expression(right)?;
 
 		match operator.kind {
@@ -446,7 +443,7 @@ impl Visitor<Value> for Environment {
 		}
 	}
 
-	fn visit_variable(&mut self, name: &Token) -> Result<Value, RuntimeError> {
+	fn visit_variable(&mut self, name: &Token) -> Result<Value, Error> {
 		self.scope.borrow().get(name)
 	}
 }

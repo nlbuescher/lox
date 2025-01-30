@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter};
 
-pub trait Locatable {
-	fn location(&self) -> &Location;
+pub trait Locate {
+	fn locate(&self) -> &Location;
 }
 
 #[derive(Debug, Clone, PartialEq)]

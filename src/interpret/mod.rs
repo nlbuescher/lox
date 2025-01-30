@@ -12,11 +12,10 @@ use std::io::{stdin, BufRead, Write};
 pub use callable::Callable;
 pub use class::{Class, Instance};
 pub use environment::Environment;
-pub use error::RuntimeError;
 pub use scope::Scope;
 
 use crate::error::Error;
-use crate::location::Locatable;
+use crate::location::Locate;
 use crate::parse::{Expression, Parser};
 use crate::tokenize::Tokens;
 use crate::value::Value;
@@ -117,25 +116,17 @@ impl Value {
 		}
 	}
 
-	fn as_number(&self, expression: &Expression) -> Result<&f64, RuntimeError> {
+	fn as_number(&self, expression: &Expression) -> Result<&f64, Error> {
 		match self {
 			Value::Number(n) => Ok(n),
-			_ => Err(RuntimeError::TypeError {
-				location: expression.location().clone(),
-				expected: TypeKind::Number,
-				actual: self.type_kind(),
-			}),
+			_ => Err(Error::type_error(expression.locate(), TypeKind::Number, self.type_kind())),
 		}
 	}
 
-	fn as_string(&self, expression: &Expression) -> Result<&String, RuntimeError> {
+	fn as_string(&self, expression: &Expression) -> Result<&String, Error> {
 		match self {
 			Value::String(s) => Ok(s),
-			_ => Err(RuntimeError::TypeError {
-				location: expression.location().clone(),
-				expected: TypeKind::String,
-				actual: self.type_kind(),
-			}),
+			_ => Err(Error::type_error(expression.locate(), TypeKind::String, self.type_kind())),
 		}
 	}
 }

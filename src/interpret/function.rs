@@ -2,9 +2,10 @@ use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 use std::rc::Rc;
 
+use crate::error::Error;
 use crate::interpret::error::Break;
 use crate::interpret::visit::Visitor;
-use crate::interpret::{Callable, Environment, RuntimeError, Scope};
+use crate::interpret::{Callable, Environment, Scope};
 use crate::parse::Statement;
 use crate::tokenize::Token;
 use crate::value::Value;
@@ -21,7 +22,7 @@ pub struct NativeFunction {
 	pub body: Rc<NativeBody>,
 }
 
-type NativeBody = dyn Fn(&mut Environment, &[Value]) -> Result<Value, RuntimeError>;
+type NativeBody = dyn Fn(&mut Environment, &[Value]) -> Result<Value, Error>;
 
 impl Function {
 	pub fn new(
@@ -37,7 +38,7 @@ impl Function {
 impl NativeFunction {
 	pub fn new<F>(body: F) -> Self
 	where
-		F: Fn(&mut Environment, &[Value]) -> Result<Value, RuntimeError> + 'static,
+		F: Fn(&mut Environment, &[Value]) -> Result<Value, Error> + 'static,
 	{
 		NativeFunction { body: Rc::new(body) }
 	}
@@ -64,7 +65,7 @@ impl Callable for Function {
 		self.parameters.len()
 	}
 
-	fn call(&self, env: &mut Environment, args: &[Value]) -> Result<Value, RuntimeError> {
+	fn call(&self, env: &mut Environment, args: &[Value]) -> Result<Value, Error> {
 		let scope = Scope::with_parent(&self.scope);
 
 		let result = env.run_in_scope(scope, |environment| {
@@ -88,7 +89,7 @@ impl Callable for NativeFunction {
 		0
 	}
 
-	fn call(&self, env: &mut Environment, args: &[Value]) -> Result<Value, RuntimeError> {
+	fn call(&self, env: &mut Environment, args: &[Value]) -> Result<Value, Error> {
 		self.body.deref()(env, args)
 	}
 }
