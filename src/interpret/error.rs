@@ -33,7 +33,15 @@ impl Error {
 		Error::Lox(Box::new((location.clone(), String::from("Value is not callable"))))
 	}
 
-	pub(super) fn unexpected_number_of_arguments(location: &Location, expected: usize, actual: usize) -> Self {
+	pub(super) fn not_instance(location: &Location) -> Self {
+		Error::Lox(Box::new((location.clone(), String::from("Only instances have fields"))))
+	}
+
+	pub(super) fn unexpected_number_of_arguments(
+		location: &Location,
+		expected: usize,
+		actual: usize,
+	) -> Self {
 		Error::Lox(Box::new((
 			location.clone(),
 			format!("Expected {expected} arguments but got {actual}"),

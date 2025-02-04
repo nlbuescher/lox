@@ -93,7 +93,7 @@ impl Display for Statement {
 					write!(f, "{location} ", location = keyword.locate())?;
 				}
 
-				write!(f, "{PAD:width$}class {name}", name = name.text)?;
+				writeln!(f, "{PAD:width$}class {name}", name = name.text)?;
 
 				if f.alternate() {
 					write!(f, "{location} ", location = open_brace.locate())?;
@@ -139,12 +139,7 @@ impl Display for Statement {
 				}
 			}
 
-			Statement::FunctionDeclaration {
-				keyword,
-				name,
-				parameters,
-				body,
-			} => {
+			Statement::FunctionDeclaration { keyword, name, parameters, body } => {
 				if f.alternate() {
 					write!(f, "{location} ", location = keyword.locate())?;
 				}
@@ -218,11 +213,7 @@ impl Display for Statement {
 				}
 			}
 
-			Statement::VariableDeclaration {
-				keyword,
-				name,
-				initializer,
-			} => {
+			Statement::VariableDeclaration { keyword, name, initializer } => {
 				if f.alternate() {
 					write!(f, "{location} ", location = keyword.locate())?;
 				}

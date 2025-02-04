@@ -100,7 +100,7 @@ impl Value {
 			Value::String(_) => TypeKind::String,
 			Value::Function(_) => TypeKind::Callable,
 			Value::Class(_) => TypeKind::Class,
-			Value::Instance(Instance { class_name, .. }) => TypeKind::Instance(class_name.clone()),
+			Value::Instance(instance) => TypeKind::Instance(instance.borrow().class_name.clone()),
 		}
 	}
 
@@ -157,10 +157,20 @@ mod tests {
 	use std::rc::Rc;
 
 	use super::*;
-	use crate::error::Error;
+
+	fn capture_run(input: &str) -> String {
+		let output = Rc::new(RefCell::new(Vec::new()));
+		let mut env = Environment::with_output(output.clone());
+		let result = run(input, &mut env, false);
+		if let Err(error) = result {
+			writeln!(output.borrow_mut(), "{error:#}").unwrap();
+		}
+		let output = output.borrow().clone();
+		String::from_utf8(output).unwrap()
+	}
 
 	#[test]
-	fn anonymous_functions() -> Result<(), Error> {
+	fn anonymous_functions() {
 		let input = "\
 fun thrice(fn) {
 	for (var i = 1; i <= 3; i = i + 1) {
@@ -174,18 +184,13 @@ thrice(fun(a) {
 ";
 		let expected = "1\n2\n3\n";
 
-		let output = Rc::new(RefCell::new(Vec::new()));
-		let mut env = Environment::with_output(output.clone());
-		run(input, &mut env, false)?;
-		let actual = String::from_utf8(output.borrow().clone()).unwrap();
+		let actual = capture_run(input);
 
 		assert_eq!(expected, actual);
-
-		Ok(())
 	}
 
 	#[test]
-	fn class() -> Result<(), Error> {
+	fn class() {
 		let input = "\
 class DevonshireCream {
   serveOn() {
@@ -197,18 +202,13 @@ print DevonshireCream;
 ";
 		let expected = "DevonshireCream\n";
 
-		let output = Rc::new(RefCell::new(Vec::new()));
-		let mut env = Environment::with_output(output.clone());
-		run(input, &mut env, false)?;
-		let actual = String::from_utf8(output.borrow().clone()).unwrap();
+		let actual = capture_run(input);
 
 		assert_eq!(expected, actual);
-
-		Ok(())
 	}
 
 	#[test]
-	fn instance() -> Result<(), Error> {
+	fn instance() {
 		let input = "\
 class Bagel {}
 var bagel = Bagel();
@@ -216,13 +216,23 @@ print bagel;
 ";
 		let expected = "Bagel instance\n";
 
-		let output = Rc::new(RefCell::new(Vec::new()));
-		let mut env = Environment::with_output(output.clone());
-		run(input, &mut env, false)?;
-		let actual = String::from_utf8(output.borrow().clone()).unwrap();
+		let actual = capture_run(input);
 
 		assert_eq!(expected, actual);
+	}
 
-		Ok(())
+	#[test]
+	fn fields() {
+		let input = "\
+class Bagel {}
+var bagel = Bagel();
+bagel.toppings = 2;
+print bagel.toppings;
+";
+		let expected = "2\n";
+
+		let actual = capture_run(input);
+
+		assert_eq!(expected, actual);
 	}
 }

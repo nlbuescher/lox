@@ -72,6 +72,13 @@ pub trait Visitor<T> {
 
 	fn visit_literal(&mut self, literal: &Token) -> Result<T, Error>;
 
+	fn visit_set(
+		&mut self,
+		object: &Expression,
+		property: &Token,
+		value: &Expression,
+	) -> Result<T, Error>;
+
 	fn visit_unary(&mut self, operator: &Token, right: &Expression) -> Result<T, Error>;
 
 	fn visit_variable(&mut self, name: &Token) -> Result<T, Error>;

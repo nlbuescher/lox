@@ -273,11 +273,15 @@ impl<'a> Parser<'a> {
 			let equals = self.previous();
 			let value = self.parse_assignment()?;
 
-			return if let Expression::Variable(name) = expression {
-				Ok(Expression::Assignment { name, expression: Box::new(value) })
-			} else {
-				Err(Error::invalid_assignment(equals.locate().clone()))
-			};
+			if let Expression::Variable(name) = expression {
+				return Ok(Expression::Assignment { name, expression: Box::new(value) });
+			}
+
+			if let Expression::Get { object, property } = expression {
+				return Ok(Expression::Set { object, property, value: Box::new(value) });
+			}
+
+			return Err(Error::invalid_assignment(equals.locate().clone()));
 		}
 
 		Ok(expression)
@@ -289,7 +293,7 @@ impl<'a> Parser<'a> {
 		while self.advance_if(TokenKind::Or) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: self.previous(),
+				operator: Box::new(self.previous()),
 				right: Box::new(self.parse_and()?),
 			}
 		}
@@ -303,7 +307,7 @@ impl<'a> Parser<'a> {
 		while self.advance_if(TokenKind::And) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: self.previous(),
+				operator: Box::new(self.previous()),
 				right: Box::new(self.parse_equality()?),
 			}
 		}
@@ -317,7 +321,7 @@ impl<'a> Parser<'a> {
 		while self.advance_if_any(&[TokenKind::BangEqual, TokenKind::EqualEqual]) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: self.previous(),
+				operator: Box::new(self.previous()),
 				right: Box::new(self.parse_comparison()?),
 			}
 		}
@@ -336,7 +340,7 @@ impl<'a> Parser<'a> {
 		]) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: self.previous(),
+				operator: Box::new(self.previous()),
 				right: Box::new(self.parse_term()?),
 			}
 		}
@@ -350,7 +354,7 @@ impl<'a> Parser<'a> {
 		while self.advance_if_any(&[TokenKind::Minus, TokenKind::Plus]) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: self.previous(),
+				operator: Box::new(self.previous()),
 				right: Box::new(self.parse_factor()?),
 			}
 		}
@@ -364,7 +368,7 @@ impl<'a> Parser<'a> {
 		while self.advance_if_any(&[TokenKind::Slash, TokenKind::Star]) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: self.previous(),
+				operator: Box::new(self.previous()),
 				right: Box::new(self.parse_unary()?),
 			}
 		}
@@ -375,7 +379,7 @@ impl<'a> Parser<'a> {
 	fn parse_unary(&mut self) -> Result<Expression> {
 		if self.advance_if_any(&[TokenKind::Bang, TokenKind::Minus]) {
 			Ok(Expression::Unary {
-				operator: self.previous(),
+				operator: Box::new(self.previous()),
 				expression: Box::new(self.parse_unary()?),
 			})
 		} else {
@@ -387,7 +391,7 @@ impl<'a> Parser<'a> {
 		let mut expression = self.parse_primary()?;
 
 		if self.advance_if(TokenKind::LeftParen) {
-			let open_paren = self.previous();
+			let open_paren = Box::new(self.previous());
 
 			let mut arguments = Vec::new();
 
@@ -399,7 +403,7 @@ impl<'a> Parser<'a> {
 				}
 			}
 
-			let close_paren = self.expect(TokenKind::RightParen, "')' after arguments")?;
+			let close_paren = Box::new(self.expect(TokenKind::RightParen, "')' after arguments")?);
 
 			expression = Expression::Call {
 				callee: Box::new(expression),
@@ -408,8 +412,8 @@ impl<'a> Parser<'a> {
 				close_paren,
 			};
 		} else if self.advance_if(TokenKind::Dot) {
-			let name = self.expect(TokenKind::Identifier, "property name after '.'")?;
-			expression = Expression::Get { object: Box::new(expression), property: name };
+			let property = Box::new(self.expect(TokenKind::Identifier, "property name after '.'")?);
+			expression = Expression::Get { object: Box::new(expression), property };
 		}
 
 		Ok(expression)
@@ -423,7 +427,7 @@ impl<'a> Parser<'a> {
 			TokenKind::Number,
 			TokenKind::String,
 		]) {
-			return Ok(Expression::Literal(self.previous()));
+			return Ok(Expression::Literal(Box::new(self.previous())));
 		}
 
 		if self.advance_if(TokenKind::LeftParen) {
@@ -433,13 +437,13 @@ impl<'a> Parser<'a> {
 		}
 
 		if self.advance_if(TokenKind::Identifier) {
-			return Ok(Expression::Variable(self.previous()));
+			return Ok(Expression::Variable(Box::new(self.previous())));
 		}
 
 		if self.advance_if(TokenKind::Fun) {
-			let keyword = self.previous();
+			let keyword = Box::new(self.previous());
 
-			let open_paren = self.expect(TokenKind::LeftParen, "'(' after fun keyword")?;
+			let open_paren = Box::new(self.expect(TokenKind::LeftParen, "'(' after fun keyword")?);
 
 			let mut parameters = Vec::new();
 			if !self.check(TokenKind::RightParen) {
@@ -450,7 +454,7 @@ impl<'a> Parser<'a> {
 				}
 			}
 
-			let close_paren = self.expect(TokenKind::RightParen, "')' after parameters")?;
+			let close_paren = Box::new(self.expect(TokenKind::RightParen, "')' after parameters")?);
 
 			self.expect(TokenKind::LeftBrace, "'{' before function body")?;
 

@@ -1,5 +1,7 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::rc::Rc;
 
 use crate::error::Error;
 use crate::interpret::{Callable, Environment};
@@ -31,6 +33,10 @@ impl Instance {
 	pub fn get(&self, name: &Token) -> Result<Value, Error> {
 		self.fields.get(&name.text).cloned().ok_or_else(|| Error::undefined_value(name))
 	}
+
+	pub fn set(&mut self, name: &Token, value: &Value) {
+		self.fields.insert(name.text.clone(), value.clone());
+	}
 }
 
 impl Display for Class {
@@ -51,6 +57,6 @@ impl Callable for Class {
 	}
 
 	fn call(&self, _: &mut Environment, _: &[Value]) -> Result<Value, Error> {
-		Ok(Value::Instance(Instance::new(self)))
+		Ok(Value::Instance(Rc::new(RefCell::new(Instance::new(self)))))
 	}
 }

@@ -123,7 +123,7 @@ impl Visitor<Value> for Environment {
 	) -> Result<Value, Break> {
 		self.scope
 			.borrow_mut()
-			.define(&name.text, Some(Value::Class(Class::new(name.text.clone()))));
+			.define(&name.text, Some(Value::Class(Rc::new(Class::new(name.text.clone())))));
 
 		Ok(Value::Nil)
 	}
@@ -249,6 +249,8 @@ impl Visitor<Value> for Environment {
 
 			Expression::Literal(literal) => self.visit_literal(literal),
 
+			Expression::Set { object, property, value } => self.visit_set(object, property, value),
+
 			Expression::Unary { operator, expression } => self.visit_unary(operator, expression),
 
 			Expression::Variable(name) => self.visit_variable(name),
@@ -369,7 +371,7 @@ impl Visitor<Value> for Environment {
 		let callable = if let Value::Function(function) = callee {
 			function
 		} else if let Value::Class(class) = callee {
-			Rc::new(class)
+			class
 		} else {
 			return Err(Error::not_callable(open_paren.locate()));
 		};
@@ -402,7 +404,7 @@ impl Visitor<Value> for Environment {
 		let object = self.visit_expression(object)?;
 
 		if let Value::Instance(instance) = object {
-			instance.get(property)
+			instance.borrow().get(property)
 		} else {
 			Err(Error::type_error(
 				property.locate(),
@@ -424,6 +426,23 @@ impl Visitor<Value> for Environment {
 			TokenKind::Number => Ok(literal.value.clone().unwrap()),
 			TokenKind::String => Ok(literal.value.clone().unwrap()),
 			it => unreachable!("Unknown token {} evaluating literal!", it),
+		}
+	}
+
+	fn visit_set(
+		&mut self,
+		object: &Expression,
+		property: &Token,
+		value: &Expression,
+	) -> Result<Value, Error> {
+		let object = self.visit_expression(object)?;
+
+		if let Value::Instance(instance) = object {
+			let value = self.visit_expression(value)?;
+			instance.borrow_mut().set(property, &value);
+			Ok(value)
+		} else {
+			Err(Error::not_instance(property.locate()))
 		}
 	}
 
