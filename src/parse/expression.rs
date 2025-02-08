@@ -2,9 +2,8 @@ use std::fmt::{Display, Formatter};
 use std::rc::Rc;
 
 use crate::location::{Locate, Location};
-use crate::tokenize::Token;
-
 use crate::parse::BlockStatement;
+use crate::tokenize::Token;
 
 #[derive(Clone)]
 pub enum Expression {
@@ -41,6 +40,7 @@ pub enum Expression {
 		property: Box<Token>,
 		value: Box<Expression>,
 	},
+	This(Box<Token>),
 	Unary {
 		operator: Box<Token>,
 		expression: Box<Expression>,
@@ -98,6 +98,10 @@ impl Display for Expression {
 				write!(f, "{object}.{property} = {value}", property = property.text)
 			}
 
+			Expression::This(_) => {
+				write!(f, "(this)")
+			}
+
 			Expression::Unary { operator, expression } => {
 				write!(f, "({operator} {expression})", operator = operator.text)
 			}
@@ -120,6 +124,7 @@ impl Locate for Expression {
 			Expression::Grouping(expression) => expression.locate(),
 			Expression::Literal(literal) => literal.locate(),
 			Expression::Set { property, .. } => property.locate(),
+			Expression::This(keyword) => keyword.locate(),
 			Expression::Unary { operator, .. } => operator.locate(),
 			Expression::Variable(name) => name.locate(),
 		}

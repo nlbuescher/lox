@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 use std::rc::Rc;
@@ -5,7 +6,7 @@ use std::rc::Rc;
 use crate::error::Error;
 use crate::interpret::error::Break;
 use crate::interpret::visit::Visitor;
-use crate::interpret::{Callable, Environment, Scope};
+use crate::interpret::{Callable, Environment, Instance, Scope};
 use crate::parse::BlockStatement;
 use crate::tokenize::Token;
 use crate::value::Value;
@@ -28,10 +29,16 @@ impl Function {
 	pub fn new(
 		name: Option<String>,
 		scope: Scope,
-		arguments: Vec<Token>,
+		parameters: Vec<Token>,
 		body: Rc<BlockStatement>,
 	) -> Self {
-		Function { name, scope, parameters: arguments, body }
+		Function { name, scope, parameters, body }
+	}
+
+	pub fn bind(&self, instance: Rc<RefCell<Instance>>) -> Function {
+		let mut scope = Scope::with_parent(&self.scope);
+		scope.define("this", Some(Value::Instance(instance)));
+		Function::new(self.name.clone(), scope, self.parameters.clone(), self.body.clone())
 	}
 }
 
@@ -65,7 +72,7 @@ impl Callable for Function {
 		self.parameters.len()
 	}
 
-	fn call(&self, env: &mut Environment, args: &[Value]) -> Result<Value, Error> {
+	fn call(self: Rc<Self>, env: &mut Environment, args: &[Value]) -> Result<Value, Error> {
 		let scope = Scope::with_parent(&self.scope);
 
 		let result = env.run_in_scope(scope, |environment| {
@@ -89,7 +96,7 @@ impl Callable for NativeFunction {
 		0
 	}
 
-	fn call(&self, env: &mut Environment, args: &[Value]) -> Result<Value, Error> {
+	fn call(self: Rc<Self>, env: &mut Environment, args: &[Value]) -> Result<Value, Error> {
 		self.body.deref()(env, args)
 	}
 }

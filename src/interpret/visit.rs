@@ -89,6 +89,8 @@ pub trait Visitor<T> {
 		value: &Expression,
 	) -> Result<T, Error>;
 
+	fn visit_this(&mut self, keyword: &Token) -> Result<T, Error>;
+
 	fn visit_unary(&mut self, operator: &Token, right: &Expression) -> Result<T, Error>;
 
 	fn visit_variable(&mut self, name: &Token) -> Result<T, Error>;

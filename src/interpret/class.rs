@@ -4,34 +4,47 @@ use std::fmt::{Display, Formatter};
 use std::rc::Rc;
 
 use crate::error::Error;
-use crate::interpret::{Callable, Environment};
+use crate::interpret::{Callable, Environment, Function};
 use crate::tokenize::Token;
 use crate::value::Value;
 
 #[derive(Clone)]
 pub struct Class {
 	pub name: String,
+	methods: HashMap<String, Rc<Function>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Instance {
-	pub class_name: String,
+	pub class: Rc<Class>,
 	fields: HashMap<String, Value>,
 }
 
 impl Class {
-	pub fn new(name: String) -> Self {
-		Class { name }
+	pub fn new(name: String, methods: HashMap<String, Rc<Function>>) -> Self {
+		Class { name, methods }
+	}
+
+	pub fn find_method(&self, name: &String) -> Option<&Rc<Function>> {
+		self.methods.get(name)
 	}
 }
 
 impl Instance {
-	fn new(class: &Class) -> Self {
-		Instance { class_name: class.name.clone(), fields: HashMap::new() }
+	fn new(class: Rc<Class>) -> Self {
+		Instance { class, fields: HashMap::new() }
 	}
 
-	pub fn get(&self, name: &Token) -> Result<Value, Error> {
-		self.fields.get(&name.text).cloned().ok_or_else(|| Error::undefined_value(name))
+	pub fn get(instance: Rc<RefCell<Instance>>, name: &Token) -> Result<Value, Error> {
+		if instance.borrow().fields.contains_key(&name.text) {
+			return Ok(instance.borrow().fields.get(&name.text).unwrap().clone());
+		}
+
+		if let Some(method) = instance.borrow().class.find_method(&name.text) {
+			return Ok(Value::Function(Rc::new(method.bind(instance.clone()))));
+		}
+
+		Err(Error::undefined_value(name))
 	}
 
 	pub fn set(&mut self, name: &Token, value: &Value) {
@@ -56,7 +69,7 @@ impl Callable for Class {
 		0
 	}
 
-	fn call(&self, _: &mut Environment, _: &[Value]) -> Result<Value, Error> {
+	fn call(self: Rc<Self>, _: &mut Environment, _: &[Value]) -> Result<Value, Error> {
 		Ok(Value::Instance(Rc::new(RefCell::new(Instance::new(self)))))
 	}
 }

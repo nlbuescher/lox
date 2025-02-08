@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::{stdout, Write};
 use std::ops::Deref;
 use std::rc::Rc;
@@ -7,7 +8,7 @@ use crate::error::Error;
 use crate::interpret::error::Break;
 use crate::interpret::function::{Function, NativeFunction};
 use crate::interpret::visit::Visitor;
-use crate::interpret::{Class, Scope, TypeKind};
+use crate::interpret::{Class, Instance, Scope, TypeKind};
 use crate::location::Locate;
 use crate::parse::{
 	BlockStatement, Expression, ExpressionStatement, FunctionDeclarationStatement, Statement,
@@ -78,59 +79,58 @@ impl Visitor<Value> for Environment {
 			}
 
 			StatementKind::ClassDeclaration => {
-				let class_decl = statement.as_class_declaration().unwrap();
-				self.visit_class_declaration(&class_decl.name, &class_decl.methods)
+				let class = statement.as_class_declaration().unwrap();
+				self.visit_class_declaration(&class.name, &class.methods)
 			}
 
 			StatementKind::Expression => {
-				let expr_stmt = statement.as_expression().unwrap();
-				Ok(self.visit_expression(&expr_stmt.expression)?)
+				let expression = statement.as_expression().unwrap();
+				Ok(self.visit_expression(&expression.expression)?)
 			}
 
 			StatementKind::For => {
-				let for_stmt = statement.as_for().unwrap();
+				let for_ = statement.as_for().unwrap();
 				self.visit_for(
-					for_stmt.initializer.as_deref(),
-					for_stmt.condition.as_deref(),
-					for_stmt.increment.as_deref(),
-					&for_stmt.body,
+					for_.initializer.as_deref(),
+					for_.condition.as_deref(),
+					for_.increment.as_deref(),
+					&for_.body,
 				)
 			}
 
 			StatementKind::FunctionDeclaration => {
-				let func_decl = statement.as_function_declaration().unwrap();
+				let function = statement.as_function_declaration().unwrap();
 				self.visit_function_declaration(
-					&func_decl.name,
-					&func_decl.parameters,
-					&func_decl.body,
+					&function.name,
+					&function.parameters,
+					&function.body,
 				)
 			}
 
 			StatementKind::If => {
-				let if_stmt = statement.as_if().unwrap();
-				let else_stmt =
-					if_stmt.else_branch.as_ref().map(|(_, else_branch)| else_branch.deref());
-				self.visit_if(&if_stmt.condition, if_stmt.then_branch.deref(), else_stmt)
+				let if_ = statement.as_if().unwrap();
+				let else_ = if_.else_branch.as_ref().map(|(_, else_branch)| else_branch.deref());
+				self.visit_if(&if_.condition, if_.then_branch.deref(), else_)
 			}
 
 			StatementKind::Print => {
-				let print_stmt = statement.as_print().unwrap();
-				self.visit_print(&print_stmt.expression)
+				let print = statement.as_print().unwrap();
+				self.visit_print(&print.expression)
 			}
 
 			StatementKind::Return => {
-				let return_stmt = statement.as_return().unwrap();
-				self.visit_return(return_stmt.expression.as_deref())
+				let return_ = statement.as_return().unwrap();
+				self.visit_return(return_.expression.as_deref())
 			}
 
 			StatementKind::VariableDeclaration => {
-				let var_decl = statement.as_variable_declaration().unwrap();
-				self.visit_variable_declaration(&var_decl.name, var_decl.initializer.as_deref())
+				let var = statement.as_variable_declaration().unwrap();
+				self.visit_variable_declaration(&var.name, var.initializer.as_deref())
 			}
 
 			StatementKind::While => {
-				let while_stmt = statement.as_while().unwrap();
-				self.visit_while(&while_stmt.condition, &while_stmt.body)
+				let while_ = statement.as_while().unwrap();
+				self.visit_while(&while_.condition, &while_.body)
 			}
 		}
 	}
@@ -148,11 +148,26 @@ impl Visitor<Value> for Environment {
 	fn visit_class_declaration(
 		&mut self,
 		name: &Token,
-		_methods: &[FunctionDeclarationStatement],
+		methods: &[FunctionDeclarationStatement],
 	) -> Result<Value, Break> {
-		self.scope
-			.borrow_mut()
-			.define(&name.text, Some(Value::Class(Rc::new(Class::new(name.text.clone())))));
+		let methods = methods
+			.iter()
+			.map(|method| {
+				let function = Function::new(
+					Some(method.name.text.clone()),
+					self.scope.borrow().clone(),
+					method.parameters.clone(),
+					method.body.clone(),
+				);
+
+				(method.name.text.clone(), Rc::new(function))
+			})
+			.collect::<HashMap<_, _>>();
+
+		self.scope.borrow_mut().define(
+			&name.text,
+			Some(Value::Class(Rc::new(Class::new(name.text.clone(), methods)))),
+		);
 
 		Ok(Value::Nil)
 	}
@@ -283,6 +298,8 @@ impl Visitor<Value> for Environment {
 			Expression::Literal(literal) => self.visit_literal(literal),
 
 			Expression::Set { object, property, value } => self.visit_set(object, property, value),
+
+			Expression::This(keyword) => self.visit_this(keyword),
 
 			Expression::Unary { operator, expression } => self.visit_unary(operator, expression),
 
@@ -437,14 +454,14 @@ impl Visitor<Value> for Environment {
 		let object = self.visit_expression(object)?;
 
 		if let Value::Instance(instance) = object {
-			instance.borrow().get(property)
-		} else {
-			Err(Error::type_error(
-				property.locate(),
-				TypeKind::Instance(String::from("any")),
-				object.type_kind(),
-			))
+			return Instance::get(instance, property);
 		}
+
+		Err(Error::type_error(
+			property.locate(),
+			TypeKind::Instance(String::from("any")),
+			object.type_kind(),
+		))
 	}
 
 	fn visit_grouping(&mut self, expression: &Expression) -> Result<Value, Error> {
@@ -477,6 +494,10 @@ impl Visitor<Value> for Environment {
 		} else {
 			Err(Error::not_instance(property.locate()))
 		}
+	}
+
+	fn visit_this(&mut self, keyword: &Token) -> Result<Value, Error> {
+		self.scope.borrow().get(keyword)
 	}
 
 	fn visit_unary(&mut self, operator: &Token, right: &Expression) -> Result<Value, Error> {

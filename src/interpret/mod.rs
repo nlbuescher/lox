@@ -101,7 +101,7 @@ impl Value {
 			Value::String(_) => TypeKind::String,
 			Value::Function(_) => TypeKind::Callable,
 			Value::Class(_) => TypeKind::Class,
-			Value::Instance(instance) => TypeKind::Instance(instance.borrow().class_name.clone()),
+			Value::Instance(instance) => TypeKind::Instance(instance.borrow().class.name.clone()),
 		}
 	}
 
@@ -231,6 +231,47 @@ bagel.toppings = 2;
 print bagel.toppings;
 ";
 		let expected = "2\n";
+
+		let actual = capture_run(input);
+
+		assert_eq!(expected, actual);
+	}
+
+	#[test]
+	fn methods() {
+		let input = "\
+class Bacon {
+	eat() {
+		print \"Crunch crunch crunch!\";
+	}
+}
+
+Bacon().eat();
+";
+		let expected = "Crunch crunch crunch!\n";
+
+		let actual = capture_run(input);
+
+		assert_eq!(expected, actual);
+	}
+
+	#[test]
+	fn this() {
+		let input = "\
+class Thing {
+  getCallback() {
+    fun localFunction() {
+      print this;
+    }
+
+    return localFunction;
+  }
+}
+
+var callback = Thing().getCallback();
+callback();
+";
+		let expected = "Thing instance\n";
 
 		let actual = capture_run(input);
 

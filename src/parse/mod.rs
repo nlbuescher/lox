@@ -394,30 +394,36 @@ impl<'a> Parser<'a> {
 	fn parse_call(&mut self) -> Result<Expression> {
 		let mut expression = self.parse_primary()?;
 
-		if self.advance_if(TokenKind::LeftParen) {
-			let open_paren = Box::new(self.previous());
+		loop {
+			if self.advance_if(TokenKind::LeftParen) {
+				let open_paren = Box::new(self.previous());
 
-			let mut arguments = Vec::new();
+				let mut arguments = Vec::new();
 
-			if !self.check(TokenKind::RightParen) {
-				arguments.push(self.parse_expression()?);
-
-				while self.advance_if(TokenKind::Comma) {
+				if !self.check(TokenKind::RightParen) {
 					arguments.push(self.parse_expression()?);
+
+					while self.advance_if(TokenKind::Comma) {
+						arguments.push(self.parse_expression()?);
+					}
 				}
+
+				let close_paren =
+					Box::new(self.expect(TokenKind::RightParen, "')' after arguments")?);
+
+				expression = Expression::Call {
+					callee: Box::new(expression),
+					open_paren,
+					arguments,
+					close_paren,
+				};
+			} else if self.advance_if(TokenKind::Dot) {
+				let property =
+					Box::new(self.expect(TokenKind::Identifier, "property name after '.'")?);
+				expression = Expression::Get { object: Box::new(expression), property };
+			} else {
+				break;
 			}
-
-			let close_paren = Box::new(self.expect(TokenKind::RightParen, "')' after arguments")?);
-
-			expression = Expression::Call {
-				callee: Box::new(expression),
-				open_paren,
-				arguments,
-				close_paren,
-			};
-		} else if self.advance_if(TokenKind::Dot) {
-			let property = Box::new(self.expect(TokenKind::Identifier, "property name after '.'")?);
-			expression = Expression::Get { object: Box::new(expression), property };
 		}
 
 		Ok(expression)
@@ -432,6 +438,10 @@ impl<'a> Parser<'a> {
 			TokenKind::String,
 		]) {
 			return Ok(Expression::Literal(Box::new(self.previous())));
+		}
+
+		if self.advance_if(TokenKind::This) {
+			return Ok(Expression::This(Box::new(self.previous())));
 		}
 
 		if self.advance_if(TokenKind::LeftParen) {
