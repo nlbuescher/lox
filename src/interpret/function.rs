@@ -6,7 +6,7 @@ use crate::error::Error;
 use crate::interpret::error::Break;
 use crate::interpret::visit::Visitor;
 use crate::interpret::{Callable, Environment, Scope};
-use crate::parse::Statement;
+use crate::parse::BlockStatement;
 use crate::tokenize::Token;
 use crate::value::Value;
 
@@ -15,7 +15,7 @@ pub struct Function {
 	name: Option<String>,
 	scope: Scope,
 	parameters: Vec<Token>,
-	pub body: Rc<Statement>,
+	pub body: Rc<BlockStatement>,
 }
 
 pub struct NativeFunction {
@@ -29,7 +29,7 @@ impl Function {
 		name: Option<String>,
 		scope: Scope,
 		arguments: Vec<Token>,
-		body: Rc<Statement>,
+		body: Rc<BlockStatement>,
 	) -> Self {
 		Function { name, scope, parameters: arguments, body }
 	}

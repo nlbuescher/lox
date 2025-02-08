@@ -8,7 +8,7 @@ use crate::interpret::{Callable, Environment};
 use crate::tokenize::Token;
 use crate::value::Value;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Class {
 	pub name: String,
 }
@@ -21,7 +21,7 @@ pub struct Instance {
 
 impl Class {
 	pub fn new(name: String) -> Self {
-		Class { name: name.clone() }
+		Class { name }
 	}
 }
 

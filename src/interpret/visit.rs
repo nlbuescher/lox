@@ -1,37 +1,43 @@
 use std::rc::Rc;
 
 use crate::interpret::error::Break;
-use crate::parse::{Expression, Statement};
+use crate::parse::{
+	BlockStatement, Expression, ExpressionStatement, FunctionDeclarationStatement, Statement,
+};
 use crate::tokenize::Token;
 use crate::Error;
 
 pub trait Visitor<T> {
-	fn visit_statement(&mut self, statement: &Statement) -> Result<T, Break>;
+	fn visit_statement(&mut self, statement: &dyn Statement) -> Result<T, Break>;
 
-	fn visit_block(&mut self, statements: &[Statement]) -> Result<T, Break>;
+	fn visit_block(&mut self, statements: &[Box<dyn Statement>]) -> Result<T, Break>;
 
-	fn visit_class_declaration(&mut self, name: &Token, methods: &[Statement]) -> Result<T, Break>;
+	fn visit_class_declaration(
+		&mut self,
+		name: &Token,
+		methods: &[FunctionDeclarationStatement],
+	) -> Result<T, Break>;
 
 	fn visit_for(
 		&mut self,
-		initializer: Option<&Statement>,
+		initializer: Option<&dyn Statement>,
 		condition: Option<&Expression>,
-		increment: Option<&Statement>,
-		body: &Statement,
+		increment: Option<&ExpressionStatement>,
+		body: &BlockStatement,
 	) -> Result<T, Break>;
 
 	fn visit_function_declaration(
 		&mut self,
 		name: &Token,
 		parameters: &[Token],
-		body: &Rc<Statement>,
+		body: &Rc<BlockStatement>,
 	) -> Result<T, Break>;
 
 	fn visit_if(
 		&mut self,
 		condition: &Expression,
-		then_branch: &Statement,
-		else_branch: Option<&Statement>,
+		then_branch: &dyn Statement,
+		else_branch: Option<&dyn Statement>,
 	) -> Result<T, Break>;
 
 	fn visit_print(&mut self, expression: &Expression) -> Result<T, Break>;
@@ -44,7 +50,7 @@ pub trait Visitor<T> {
 		initializer: Option<&Expression>,
 	) -> Result<T, Break>;
 
-	fn visit_while(&mut self, condition: &Expression, body: &Statement) -> Result<T, Break>;
+	fn visit_while(&mut self, condition: &Expression, body: &BlockStatement) -> Result<T, Break>;
 
 	fn visit_expression(&mut self, expression: &Expression) -> Result<T, Error>;
 
@@ -64,7 +70,11 @@ pub trait Visitor<T> {
 		arguments: &[Expression],
 	) -> Result<T, Error>;
 
-	fn visit_function(&mut self, parameters: &[Token], body: &Rc<Statement>) -> Result<T, Error>;
+	fn visit_function(
+		&mut self,
+		parameters: &[Token],
+		body: &Rc<BlockStatement>,
+	) -> Result<T, Error>;
 
 	fn visit_get(&mut self, object: &Expression, property: &Token) -> Result<T, Error>;
 

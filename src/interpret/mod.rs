@@ -12,6 +12,7 @@ use std::io::{stdin, BufRead, Write};
 pub use callable::Callable;
 pub use class::{Class, Instance};
 pub use environment::Environment;
+pub use function::Function;
 pub use scope::Scope;
 
 use crate::error::Error;
@@ -74,7 +75,7 @@ pub fn run(source: &str, env: &mut Environment, verbose: bool) -> Result<(), Err
 	}
 
 	for statement in parser {
-		env.execute(&statement?)?;
+		env.execute(&*statement?)?;
 	}
 
 	Ok(())

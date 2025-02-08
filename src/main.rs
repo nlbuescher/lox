@@ -2,7 +2,7 @@ use clap::Parser;
 use lox::error::Error;
 use lox::{run_file, run_prompt};
 
-#[derive(Debug, Parser)]
+#[derive(Parser)]
 #[command(name = "lox", about = "Lox Interpreter", version)]
 struct Args {
 	// File to run
@@ -20,6 +20,6 @@ pub fn main() -> Result<(), Error> {
 	if let Some(ref filename) = args.filename {
 		run_file(filename, args.verbose)
 	} else {
-		run_prompt(false)
+		run_prompt(args.verbose)
 	}
 }

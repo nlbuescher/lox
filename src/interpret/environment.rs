@@ -9,7 +9,10 @@ use crate::interpret::function::{Function, NativeFunction};
 use crate::interpret::visit::Visitor;
 use crate::interpret::{Class, Scope, TypeKind};
 use crate::location::Locate;
-use crate::parse::{Expression, Statement};
+use crate::parse::{
+	BlockStatement, Expression, ExpressionStatement, FunctionDeclarationStatement, Statement,
+	StatementKind,
+};
 use crate::tokenize::{Token, TokenKind};
 use crate::value::Value;
 
@@ -58,7 +61,7 @@ impl Environment {
 		result
 	}
 
-	pub fn execute(&mut self, statement: &Statement) -> Result<Value, Error> {
+	pub fn execute(&mut self, statement: &dyn Statement) -> Result<Value, Error> {
 		self.visit_statement(statement).map_err(|error| match error {
 			Break::Error(error) => error,
 			Break::Return(_) => unreachable!("If you've landed here, the parser allowed a return statement outside of a function")
@@ -67,59 +70,85 @@ impl Environment {
 }
 
 impl Visitor<Value> for Environment {
-	fn visit_statement(&mut self, statement: &Statement) -> Result<Value, Break> {
-		match statement {
-			Statement::Block { statements, .. } => self.visit_block(statements),
-
-			Statement::ClassDeclaration { name, methods, .. } => {
-				self.visit_class_declaration(name, methods)
+	fn visit_statement(&mut self, statement: &dyn Statement) -> Result<Value, Break> {
+		match statement.statement_kind() {
+			StatementKind::Block => {
+				let block = statement.as_block().unwrap();
+				self.visit_block(&block.statements)
 			}
 
-			Statement::Expression(expression) => Ok(self.visit_expression(expression)?),
-
-			Statement::For { initializer, condition, increment, body, .. } => self.visit_for(
-				initializer.as_deref(),
-				condition.as_deref(),
-				increment.as_deref(),
-				body,
-			),
-
-			Statement::FunctionDeclaration { name, parameters, body, .. } => {
-				self.visit_function_declaration(name, parameters, body)
+			StatementKind::ClassDeclaration => {
+				let class_decl = statement.as_class_declaration().unwrap();
+				self.visit_class_declaration(&class_decl.name, &class_decl.methods)
 			}
 
-			Statement::If { condition, then_branch, else_branch, .. } => self.visit_if(
-				condition,
-				then_branch,
-				else_branch.as_ref().map(|(_, it)| it.deref()),
-			),
-
-			Statement::Print { expression, .. } => self.visit_print(expression),
-
-			Statement::Return { expression, .. } => self.visit_return(expression.as_deref()),
-
-			Statement::VariableDeclaration { name, initializer, .. } => {
-				self.visit_variable_declaration(name, initializer.as_deref())
+			StatementKind::Expression => {
+				let expr_stmt = statement.as_expression().unwrap();
+				Ok(self.visit_expression(&expr_stmt.expression)?)
 			}
 
-			Statement::While { condition, body, .. } => self.visit_while(condition, body),
+			StatementKind::For => {
+				let for_stmt = statement.as_for().unwrap();
+				self.visit_for(
+					for_stmt.initializer.as_deref(),
+					for_stmt.condition.as_deref(),
+					for_stmt.increment.as_deref(),
+					&for_stmt.body,
+				)
+			}
+
+			StatementKind::FunctionDeclaration => {
+				let func_decl = statement.as_function_declaration().unwrap();
+				self.visit_function_declaration(
+					&func_decl.name,
+					&func_decl.parameters,
+					&func_decl.body,
+				)
+			}
+
+			StatementKind::If => {
+				let if_stmt = statement.as_if().unwrap();
+				let else_stmt =
+					if_stmt.else_branch.as_ref().map(|(_, else_branch)| else_branch.deref());
+				self.visit_if(&if_stmt.condition, if_stmt.then_branch.deref(), else_stmt)
+			}
+
+			StatementKind::Print => {
+				let print_stmt = statement.as_print().unwrap();
+				self.visit_print(&print_stmt.expression)
+			}
+
+			StatementKind::Return => {
+				let return_stmt = statement.as_return().unwrap();
+				self.visit_return(return_stmt.expression.as_deref())
+			}
+
+			StatementKind::VariableDeclaration => {
+				let var_decl = statement.as_variable_declaration().unwrap();
+				self.visit_variable_declaration(&var_decl.name, var_decl.initializer.as_deref())
+			}
+
+			StatementKind::While => {
+				let while_stmt = statement.as_while().unwrap();
+				self.visit_while(&while_stmt.condition, &while_stmt.body)
+			}
 		}
 	}
 
-	fn visit_block(&mut self, statements: &[Statement]) -> Result<Value, Break> {
+	fn visit_block(&mut self, statements: &[Box<dyn Statement>]) -> Result<Value, Break> {
 		let scope = Scope::with_parent(self.scope.borrow().deref());
 
 		self.run_in_scope(scope, |environment| {
 			statements
 				.iter()
-				.try_fold(Value::Nil, |_, statement| environment.visit_statement(statement))
+				.try_fold(Value::Nil, |_, statement| environment.visit_statement(statement.deref()))
 		})
 	}
 
 	fn visit_class_declaration(
 		&mut self,
 		name: &Token,
-		_methods: &[Statement],
+		_methods: &[FunctionDeclarationStatement],
 	) -> Result<Value, Break> {
 		self.scope
 			.borrow_mut()
@@ -130,10 +159,10 @@ impl Visitor<Value> for Environment {
 
 	fn visit_for(
 		&mut self,
-		initializer: Option<&Statement>,
+		initializer: Option<&dyn Statement>,
 		condition: Option<&Expression>,
-		increment: Option<&Statement>,
-		body: &Statement,
+		increment: Option<&ExpressionStatement>,
+		body: &BlockStatement,
 	) -> Result<Value, Break> {
 		let scope = Scope::with_parent(self.scope.borrow().deref());
 
@@ -164,7 +193,7 @@ impl Visitor<Value> for Environment {
 		&mut self,
 		name: &Token,
 		parameters: &[Token],
-		body: &Rc<Statement>,
+		body: &Rc<BlockStatement>,
 	) -> Result<Value, Break> {
 		let function = self.visit_function(parameters, body)?;
 
@@ -176,8 +205,8 @@ impl Visitor<Value> for Environment {
 	fn visit_if(
 		&mut self,
 		condition: &Expression,
-		then_branch: &Statement,
-		else_branch: Option<&Statement>,
+		then_branch: &dyn Statement,
+		else_branch: Option<&dyn Statement>,
 	) -> Result<Value, Break> {
 		let condition = self.visit_expression(condition)?;
 
@@ -221,7 +250,11 @@ impl Visitor<Value> for Environment {
 		Ok(Value::Nil)
 	}
 
-	fn visit_while(&mut self, condition: &Expression, body: &Statement) -> Result<Value, Break> {
+	fn visit_while(
+		&mut self,
+		condition: &Expression,
+		body: &BlockStatement,
+	) -> Result<Value, Break> {
 		while self.visit_expression(condition)?.is_truthy() {
 			self.visit_statement(body)?;
 		}
@@ -390,7 +423,7 @@ impl Visitor<Value> for Environment {
 	fn visit_function(
 		&mut self,
 		parameters: &[Token],
-		body: &Rc<Statement>,
+		body: &Rc<BlockStatement>,
 	) -> Result<Value, Error> {
 		Ok(Value::Function(Rc::new(Function::new(
 			None,

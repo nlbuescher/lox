@@ -2,10 +2,11 @@ use std::fmt::{Display, Formatter};
 use std::rc::Rc;
 
 use crate::location::{Locate, Location};
-use crate::parse::Statement;
 use crate::tokenize::Token;
 
-#[derive(Debug, Clone)]
+use crate::parse::BlockStatement;
+
+#[derive(Clone)]
 pub enum Expression {
 	Assignment {
 		name: Box<Token>,
@@ -27,7 +28,7 @@ pub enum Expression {
 		open_paren: Box<Token>,
 		parameters: Vec<Token>,
 		close_paren: Box<Token>,
-		body: Rc<Statement>,
+		body: Rc<BlockStatement>,
 	},
 	Get {
 		object: Box<Expression>,
