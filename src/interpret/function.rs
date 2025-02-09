@@ -7,19 +7,22 @@ use crate::error::Error;
 use crate::interpret::error::Break;
 use crate::interpret::visit::Visitor;
 use crate::interpret::{Callable, Environment, Instance, Scope};
+use crate::location::Locate;
 use crate::parse::BlockStatement;
-use crate::tokenize::Token;
+use crate::tokenize::{Token, TokenKind};
 use crate::value::Value;
 
 #[derive(Clone)]
 pub struct Function {
 	name: Option<String>,
+	is_initializer: bool,
 	scope: Scope,
 	parameters: Vec<Token>,
 	pub body: Rc<BlockStatement>,
 }
 
 pub struct NativeFunction {
+	arity: usize,
 	pub body: Rc<NativeBody>,
 }
 
@@ -28,26 +31,33 @@ type NativeBody = dyn Fn(&mut Environment, &[Value]) -> Result<Value, Error>;
 impl Function {
 	pub fn new(
 		name: Option<String>,
+		is_initializer: bool,
 		scope: Scope,
 		parameters: Vec<Token>,
 		body: Rc<BlockStatement>,
 	) -> Self {
-		Function { name, scope, parameters, body }
+		Function { name, is_initializer, scope, parameters, body }
 	}
 
-	pub fn bind(&self, instance: Rc<RefCell<Instance>>) -> Function {
+	pub fn bind(&self, instance: Rc<RefCell<Instance>>) -> Rc<Function> {
 		let mut scope = Scope::with_parent(&self.scope);
 		scope.define("this", Some(Value::Instance(instance)));
-		Function::new(self.name.clone(), scope, self.parameters.clone(), self.body.clone())
+		Rc::new(Function::new(
+			self.name.clone(),
+			self.is_initializer,
+			scope,
+			self.parameters.clone(),
+			self.body.clone(),
+		))
 	}
 }
 
 impl NativeFunction {
-	pub fn new<F>(body: F) -> Self
+	pub fn new<F>(arity: usize, body: F) -> Self
 	where
 		F: Fn(&mut Environment, &[Value]) -> Result<Value, Error> + 'static,
 	{
-		NativeFunction { body: Rc::new(body) }
+		NativeFunction { arity, body: Rc::new(body) }
 	}
 }
 
@@ -83,6 +93,18 @@ impl Callable for Function {
 			environment.visit_statement(self.body.deref())
 		});
 
+		if let Err(Break::Error(error)) = result {
+			return Err(error);
+		}
+
+		if self.is_initializer {
+			if let Err(Break::Return(_)) = result {
+				return Err(Error::initializer_return(self.body.locate()));
+			}
+			let this = Token::with_text(self.body.locate().clone(), TokenKind::Identifier, "this");
+			return self.scope.get(&this);
+		}
+
 		match result {
 			Ok(_) => Ok(Value::Nil),
 			Err(Break::Return(value)) => Ok(value),
@@ -93,7 +115,7 @@ impl Callable for Function {
 
 impl Callable for NativeFunction {
 	fn arity(&self) -> usize {
-		0
+		self.arity
 	}
 
 	fn call(self: Rc<Self>, env: &mut Environment, args: &[Value]) -> Result<Value, Error> {

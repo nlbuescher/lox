@@ -41,7 +41,7 @@ impl Instance {
 		}
 
 		if let Some(method) = instance.borrow().class.find_method(&name.text) {
-			return Ok(Value::Function(Rc::new(method.bind(instance.clone()))));
+			return Ok(Value::Function(method.bind(instance.clone())));
 		}
 
 		Err(Error::undefined_value(name))
@@ -66,10 +66,20 @@ impl PartialEq for Class {
 
 impl Callable for Class {
 	fn arity(&self) -> usize {
-		0
+		if let Some(initializer) = self.find_method(&String::from("init")) {
+			initializer.arity()
+		} else {
+			0
+		}
 	}
 
-	fn call(self: Rc<Self>, _: &mut Environment, _: &[Value]) -> Result<Value, Error> {
-		Ok(Value::Instance(Rc::new(RefCell::new(Instance::new(self)))))
+	fn call(self: Rc<Self>, env: &mut Environment, args: &[Value]) -> Result<Value, Error> {
+		let instance = Rc::new(RefCell::new(Instance::new(self.clone())));
+
+		if let Some(initializer) = self.find_method(&String::from("init")) {
+			initializer.bind(instance.clone()).call(env, args)?;
+		}
+
+		Ok(Value::Instance(instance))
 	}
 }

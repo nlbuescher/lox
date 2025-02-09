@@ -36,7 +36,7 @@ impl Environment {
 
 		environment.scope.borrow_mut().define(
 			"clock",
-			Some(Value::Function(Rc::new(NativeFunction::new(|_, _| {
+			Some(Value::Function(Rc::new(NativeFunction::new(0, |_, _| {
 				use std::time::{SystemTime, UNIX_EPOCH};
 
 				let now = SystemTime::now();
@@ -155,6 +155,7 @@ impl Visitor<Value> for Environment {
 			.map(|method| {
 				let function = Function::new(
 					Some(method.name.text.clone()),
+					method.name.text == "init",
 					self.scope.borrow().clone(),
 					method.parameters.clone(),
 					method.body.clone(),
@@ -444,6 +445,7 @@ impl Visitor<Value> for Environment {
 	) -> Result<Value, Error> {
 		Ok(Value::Function(Rc::new(Function::new(
 			None,
+			false,
 			self.scope.borrow().clone(),
 			Vec::from(parameters),
 			body.clone(),

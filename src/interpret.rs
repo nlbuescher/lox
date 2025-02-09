@@ -277,4 +277,23 @@ callback();
 
 		assert_eq!(expected, actual);
 	}
+
+	#[test]
+	fn init() {
+		let input = "\
+class Foo {
+  init() {
+    print this;
+  }
+}
+
+var foo = Foo();
+print foo.init();
+";
+		let expected = "Foo instance\nFoo instance\nFoo instance\n";
+
+		let actual = capture_run(input);
+
+		assert_eq!(expected, actual);
+	}
 }

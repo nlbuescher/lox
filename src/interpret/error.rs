@@ -47,4 +47,11 @@ impl Error {
 			format!("Expected {expected} arguments but got {actual}"),
 		)))
 	}
+
+	pub(super) fn initializer_return(location: &Location) -> Self {
+		Error::Lox(Box::new((
+			location.clone(),
+			String::from("Cannot return a value from an initializer"),
+		)))
+	}
 }
