@@ -98,8 +98,10 @@ impl Callable for Function {
 		}
 
 		if self.is_initializer {
-			if let Err(Break::Return(_)) = result {
-				return Err(Error::initializer_return(self.body.locate()));
+			if let Err(Break::Return(value)) = result {
+				if !matches!(value, Value::Nil) {
+					return Err(Error::initializer_return(self.body.locate()));
+				}
 			}
 			let this = Token::with_text(self.body.locate().clone(), TokenKind::Identifier, "this");
 			return self.scope.get(&this);
