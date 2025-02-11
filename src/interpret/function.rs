@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 use std::rc::Rc;
@@ -39,9 +38,9 @@ impl Function {
 		Function { name, is_initializer, scope, parameters, body }
 	}
 
-	pub fn bind(&self, instance: Rc<RefCell<Instance>>) -> Rc<Function> {
+	pub fn bind(&self, instance: Instance) -> Rc<Function> {
 		let mut scope = Scope::with_parent(&self.scope);
-		scope.define("this", Some(Value::Instance(instance)));
+		scope.define("this", Some(Value::Instance(Box::new(instance))));
 		Rc::new(Function::new(
 			self.name.clone(),
 			self.is_initializer,
@@ -82,7 +81,7 @@ impl Callable for Function {
 		self.parameters.len()
 	}
 
-	fn call(self: Rc<Self>, env: &mut Environment, args: &[Value]) -> Result<Value, Error> {
+	fn call(&self, env: &mut Environment, args: &[Value]) -> Result<Value, Error> {
 		let scope = Scope::with_parent(&self.scope);
 
 		let result = env.run_in_scope(scope, |environment| {
@@ -120,7 +119,7 @@ impl Callable for NativeFunction {
 		self.arity
 	}
 
-	fn call(self: Rc<Self>, env: &mut Environment, args: &[Value]) -> Result<Value, Error> {
+	fn call(&self, env: &mut Environment, args: &[Value]) -> Result<Value, Error> {
 		self.body.deref()(env, args)
 	}
 }

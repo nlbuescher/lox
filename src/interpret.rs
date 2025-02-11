@@ -1,8 +1,8 @@
 mod callable;
-mod class;
 mod environment;
 mod error;
 mod function;
+mod object;
 mod scope;
 mod visit;
 
@@ -10,9 +10,9 @@ use std::fmt::{Debug, Display, Formatter};
 use std::io::{stdin, BufRead, Write};
 
 pub use callable::Callable;
-pub use class::{Class, Instance};
 pub use environment::Environment;
 pub use function::Function;
+pub use object::{Class, Instance};
 pub use scope::Scope;
 
 use crate::error::Error;
@@ -87,7 +87,7 @@ pub enum TypeKind {
 	Bool,
 	Number,
 	String,
-	Callable,
+	Function,
 	Class,
 	Instance(String),
 }
@@ -99,9 +99,9 @@ impl Value {
 			Value::Bool(_) => TypeKind::Bool,
 			Value::Number(_) => TypeKind::Number,
 			Value::String(_) => TypeKind::String,
-			Value::Function(_) => TypeKind::Callable,
+			Value::Function(_) => TypeKind::Function,
 			Value::Class(_) => TypeKind::Class,
-			Value::Instance(instance) => TypeKind::Instance(instance.borrow().class.name.clone()),
+			Value::Instance(instance) => TypeKind::Instance(instance.class.name.clone()),
 		}
 	}
 
@@ -139,7 +139,7 @@ impl TypeKind {
 			TypeKind::Bool => "Bool",
 			TypeKind::Number => "Number",
 			TypeKind::String => "String",
-			TypeKind::Callable => "Callable",
+			TypeKind::Function => "Callable",
 			TypeKind::Class => "Class",
 			TypeKind::Instance(class_name) => class_name.as_str(),
 		}
@@ -310,6 +310,24 @@ var foo = Foo();
 print foo.init();
 ";
 		let expected = "Foo instance\n";
+
+		let actual = capture_run(input);
+
+		assert_eq!(expected, actual);
+	}
+
+	#[test]
+	fn class_methods() {
+		let input = "\
+class Math {
+  class square(n) {
+    return n * n;
+  }
+}
+
+print Math.square(7);
+";
+		let expected = "49\n";
 
 		let actual = capture_run(input);
 

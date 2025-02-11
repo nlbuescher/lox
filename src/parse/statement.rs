@@ -93,7 +93,7 @@ pub struct ForStatement {
 }
 
 pub struct FunctionDeclarationStatement {
-	pub keyword: Box<Token>,
+	pub keyword: Option<Box<Token>>,
 	pub name: Box<Token>,
 	pub parameters: Vec<Token>,
 	pub body: Rc<BlockStatement>,
@@ -333,7 +333,7 @@ impl Display for FunctionDeclarationStatement {
 		let width = f.width().unwrap_or(0);
 
 		if f.alternate() {
-			write!(f, "{location} ", location = self.keyword.locate())?;
+			write!(f, "{location} ", location = self.locate())?;
 		}
 		write!(f, "{PAD:width$}fun {name}(", name = self.name.text)?;
 
@@ -465,60 +465,64 @@ impl Display for WhileStatement {
 
 impl Locate for BlockStatement {
 	fn locate(&self) -> &Location {
-		&self.open_brace.locate()
+		self.open_brace.locate()
 	}
 }
 
 impl Locate for ClassDeclarationStatement {
 	fn locate(&self) -> &Location {
-		&self.keyword.locate()
+		self.keyword.locate()
 	}
 }
 
 impl Locate for ExpressionStatement {
 	fn locate(&self) -> &Location {
-		&self.expression.locate()
+		self.expression.locate()
 	}
 }
 
 impl Locate for ForStatement {
 	fn locate(&self) -> &Location {
-		&self.keyword.locate()
+		self.keyword.locate()
 	}
 }
 
 impl Locate for FunctionDeclarationStatement {
 	fn locate(&self) -> &Location {
-		&self.keyword.locate()
+		if let Some(ref keyword) = self.keyword {
+			keyword.locate()
+		} else {
+			self.name.locate()
+		}
 	}
 }
 
 impl Locate for IfStatement {
 	fn locate(&self) -> &Location {
-		&self.keyword.locate()
+		self.keyword.locate()
 	}
 }
 
 impl Locate for PrintStatement {
 	fn locate(&self) -> &Location {
-		&self.keyword.locate()
+		self.keyword.locate()
 	}
 }
 
 impl Locate for ReturnStatement {
 	fn locate(&self) -> &Location {
-		&self.keyword.locate()
+		self.keyword.locate()
 	}
 }
 
 impl Locate for VariableDeclarationStatement {
 	fn locate(&self) -> &Location {
-		&self.name.locate()
+		self.name.locate()
 	}
 }
 
 impl Locate for WhileStatement {
 	fn locate(&self) -> &Location {
-		&self.keyword.locate()
+		self.keyword.locate()
 	}
 }

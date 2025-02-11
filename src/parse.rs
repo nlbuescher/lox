@@ -89,7 +89,16 @@ impl<'a> Parser<'a> {
 	}
 
 	fn parse_function_declaration(&mut self) -> Result<FunctionDeclarationStatement> {
-		let keyword = Box::new(self.previous());
+		self.advance_if(TokenKind::Class);
+
+		let previous = self.previous();
+
+		let keyword = if matches!(previous.kind, TokenKind::Fun | TokenKind::Class) {
+			Some(Box::new(previous))
+		} else {
+			None
+		};
+
 		let name = Box::new(self.expect(TokenKind::Identifier, "function name")?);
 
 		self.expect(TokenKind::LeftParen, "'(' after function name")?;

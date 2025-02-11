@@ -7,8 +7,9 @@ use std::rc::Rc;
 use crate::error::Error;
 use crate::interpret::error::Break;
 use crate::interpret::function::{Function, NativeFunction};
+use crate::interpret::object::Object;
 use crate::interpret::visit::Visitor;
-use crate::interpret::{Class, Instance, Scope, TypeKind};
+use crate::interpret::{Class, Scope, TypeKind};
 use crate::location::Locate;
 use crate::parse::{
 	BlockStatement, Expression, ExpressionStatement, FunctionDeclarationStatement, Statement,
@@ -150,24 +151,32 @@ impl Visitor<Value> for Environment {
 		name: &Token,
 		methods: &[FunctionDeclarationStatement],
 	) -> Result<Value, Break> {
-		let methods = methods
-			.iter()
-			.map(|method| {
-				let function = Function::new(
-					Some(method.name.text.clone()),
-					method.name.text == "init",
-					self.scope.borrow().clone(),
-					method.parameters.clone(),
-					method.body.clone(),
-				);
+		let mut class_methods = HashMap::new();
+		let mut instance_methods = HashMap::new();
 
-				(method.name.text.clone(), Rc::new(function))
-			})
-			.collect::<HashMap<_, _>>();
+		for method in methods {
+			let function = Rc::new(Function::new(
+				Some(method.name.text.clone()),
+				method.name.text == "init",
+				self.scope.borrow().clone(),
+				method.parameters.clone(),
+				method.body.clone(),
+			));
+
+			if matches!(method.keyword, Some(ref keyword) if keyword.kind == TokenKind::Class) {
+				class_methods.insert(method.name.text.clone(), function);
+			} else {
+				instance_methods.insert(method.name.text.clone(), function);
+			}
+		}
 
 		self.scope.borrow_mut().define(
 			&name.text,
-			Some(Value::Class(Rc::new(Class::new(name.text.clone(), methods)))),
+			Some(Value::Class(Rc::new(Class::new(
+				name.text.clone(),
+				class_methods,
+				instance_methods,
+			)))),
 		);
 
 		Ok(Value::Nil)
@@ -456,7 +465,11 @@ impl Visitor<Value> for Environment {
 		let object = self.visit_expression(object)?;
 
 		if let Value::Instance(instance) = object {
-			return Instance::get(instance, property);
+			return instance.get(property);
+		}
+
+		if let Value::Class(class) = object {
+			return class.get(property);
 		}
 
 		Err(Error::type_error(
@@ -489,9 +502,9 @@ impl Visitor<Value> for Environment {
 	) -> Result<Value, Error> {
 		let object = self.visit_expression(object)?;
 
-		if let Value::Instance(instance) = object {
+		if let Value::Instance(mut instance) = object {
 			let value = self.visit_expression(value)?;
-			instance.borrow_mut().set(property, &value);
+			instance.set(property, value.clone());
 			Ok(value)
 		} else {
 			Err(Error::not_instance(property.locate()))

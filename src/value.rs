@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::fmt::{Debug, Display, Formatter};
 use std::rc::Rc;
 
@@ -12,7 +11,7 @@ pub enum Value {
 	String(String),
 	Function(Rc<dyn Callable>),
 	Class(Rc<Class>),
-	Instance(Rc<RefCell<Instance>>),
+	Instance(Box<Instance>),
 }
 
 impl Debug for Value {
@@ -30,7 +29,7 @@ impl Display for Value {
 			Value::String(s) => write!(f, "{s}"),
 			Value::Function(function) => write!(f, "{}", function.to_string()),
 			Value::Class(class) => write!(f, "{}", class.name),
-			Value::Instance(instance) => write!(f, "{} instance", instance.borrow().class.name),
+			Value::Instance(instance) => write!(f, "{} instance", instance.class.name),
 		}
 	}
 }
