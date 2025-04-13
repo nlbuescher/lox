@@ -1,7 +1,8 @@
+use std::cell::RefCell;
 use std::fmt::{Debug, Display, Formatter};
 use std::rc::Rc;
 
-use crate::interpret::{Callable, Class, Instance};
+use crate::interpret::Dynamic;
 
 #[derive(Clone)]
 pub enum Value {
@@ -9,9 +10,7 @@ pub enum Value {
 	Bool(bool),
 	Number(f64),
 	String(String),
-	Function(Rc<dyn Callable>),
-	Class(Rc<Class>),
-	Instance(Box<Instance>),
+	Dynamic(Rc<RefCell<dyn Dynamic>>),
 }
 
 impl Debug for Value {
@@ -27,9 +26,7 @@ impl Display for Value {
 			Value::Bool(b) => write!(f, "{b}"),
 			Value::Number(n) => write!(f, "{n}"),
 			Value::String(s) => write!(f, "{s}"),
-			Value::Function(function) => write!(f, "{}", function.to_string()),
-			Value::Class(class) => write!(f, "{}", class.name),
-			Value::Instance(instance) => write!(f, "{} instance", instance.class.name),
+			Value::Dynamic(o) => write!(f, "{}", o.borrow().to_string()),
 		}
 	}
 }

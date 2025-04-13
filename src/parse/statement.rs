@@ -252,7 +252,8 @@ impl Display for BlockStatement {
 			for statement in &self.statements {
 				if f.alternate() {
 					writeln!(f, "{statement:#width$}")?;
-				} else {
+				}
+				else {
 					writeln!(f, "{statement:width$}")?;
 				}
 			}
@@ -322,7 +323,8 @@ impl Display for ForStatement {
 
 		if f.alternate() {
 			write!(f, "{body:#width$}", body = self.body)
-		} else {
+		}
+		else {
 			write!(f, "{body:width$}", body = self.body)
 		}
 	}
@@ -348,7 +350,8 @@ impl Display for FunctionDeclarationStatement {
 
 		if f.alternate() {
 			write!(f, "{body:#width$}", body = self.body)
-		} else {
+		}
+		else {
 			write!(f, "{body:width$}", body = self.body)
 		}
 	}
@@ -366,7 +369,8 @@ impl Display for IfStatement {
 
 		if f.alternate() {
 			write!(f, "{then_branch:#width$}", then_branch = self.then_branch)?;
-		} else {
+		}
+		else {
 			write!(f, "{then_branch:width$}", then_branch = self.then_branch)?;
 		}
 
@@ -381,7 +385,8 @@ impl Display for IfStatement {
 
 			if f.alternate() {
 				write!(f, "{else_branch:#width$}", else_branch = else_branch)?;
-			} else {
+			}
+			else {
 				write!(f, "{else_branch:width$}", else_branch = else_branch)?;
 			}
 		}
@@ -412,7 +417,8 @@ impl Display for ReturnStatement {
 
 		if let Some(expression) = &self.expression {
 			write!(f, "(return {expression})", expression = expression)
-		} else {
+		}
+		else {
 			write!(f, "(return)")
 		}
 	}
@@ -453,7 +459,8 @@ impl Display for WhileStatement {
 
 		if f.alternate() {
 			write!(f, "{body:#width$}", body = self.body)
-		} else {
+		}
+		else {
 			write!(f, "{body:width$}", body = self.body)
 		}
 	}
@@ -491,7 +498,8 @@ impl Locate for FunctionDeclarationStatement {
 	fn locate(&self) -> &Location {
 		if let Some(ref keyword) = self.keyword {
 			keyword.locate()
-		} else {
+		}
+		else {
 			self.name.locate()
 		}
 	}

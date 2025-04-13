@@ -95,7 +95,8 @@ impl<'a> Parser<'a> {
 
 		let keyword = if matches!(previous.kind, TokenKind::Fun | TokenKind::Class) {
 			Some(Box::new(previous))
-		} else {
+		}
+		else {
 			None
 		};
 
@@ -126,7 +127,8 @@ impl<'a> Parser<'a> {
 
 		let initializer = if self.advance_if(TokenKind::Equal) {
 			Some(Box::new(self.parse_expression()?))
-		} else {
+		}
+		else {
 			None
 		};
 
@@ -168,7 +170,8 @@ impl<'a> Parser<'a> {
 
 		let expression = if !self.check(TokenKind::Semicolon) {
 			Some(Box::new(self.parse_expression()?))
-		} else {
+		}
+		else {
 			None
 		};
 
@@ -197,15 +200,18 @@ impl<'a> Parser<'a> {
 
 		let initializer: Option<Box<dyn Statement>> = if self.advance_if(TokenKind::Semicolon) {
 			None
-		} else if self.advance_if(TokenKind::Var) {
+		}
+		else if self.advance_if(TokenKind::Var) {
 			Some(Box::new(self.parse_variable_declaration()?))
-		} else {
+		}
+		else {
 			Some(Box::new(self.parse_expression_statement()?))
 		};
 
 		let condition = if !self.check(TokenKind::Semicolon) {
 			Some(Box::new(self.parse_expression()?))
-		} else {
+		}
+		else {
 			None
 		};
 
@@ -213,7 +219,8 @@ impl<'a> Parser<'a> {
 
 		let increment = if !self.check(TokenKind::RightParen) {
 			Some(Box::new(ExpressionStatement { expression: Box::new(self.parse_expression()?) }))
-		} else {
+		}
+		else {
 			None
 		};
 
@@ -242,12 +249,14 @@ impl<'a> Parser<'a> {
 
 			let else_branch: Box<dyn Statement> = if next.kind == TokenKind::If {
 				Box::new(self.parse_if_statement()?)
-			} else {
+			}
+			else {
 				Box::new(self.parse_block()?)
 			};
 
 			Some((keyword, else_branch))
-		} else {
+		}
+		else {
 			None
 		};
 
@@ -395,7 +404,8 @@ impl<'a> Parser<'a> {
 				operator: Box::new(self.previous()),
 				expression: Box::new(self.parse_unary()?),
 			})
-		} else {
+		}
+		else {
 			self.parse_call()
 		}
 	}
@@ -426,11 +436,13 @@ impl<'a> Parser<'a> {
 					arguments,
 					close_paren,
 				};
-			} else if self.advance_if(TokenKind::Dot) {
+			}
+			else if self.advance_if(TokenKind::Dot) {
 				let property =
 					Box::new(self.expect(TokenKind::Identifier, "property name after '.'")?);
 				expression = Expression::Get { object: Box::new(expression), property };
-			} else {
+			}
+			else {
 				break;
 			}
 		}
@@ -553,7 +565,8 @@ impl Iterator for Parser<'_> {
 		if matches!(self.peek(), Ok(token) if token.kind == TokenKind::EndOfFile) {
 			self.advance();
 			None
-		} else {
+		}
+		else {
 			let next = self.parse_declaration();
 
 			if next.is_err() {

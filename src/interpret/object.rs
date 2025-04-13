@@ -4,7 +4,7 @@ use std::fmt::{Display, Formatter};
 use std::rc::Rc;
 
 use crate::error::Error;
-use crate::interpret::{Callable, Environment, Function};
+use crate::interpret::{Callable, Dynamic, Environment, Function};
 use crate::tokenize::Token;
 use crate::value::Value;
 
@@ -27,7 +27,7 @@ pub struct Instance {
 }
 
 #[derive(Default, Clone)]
-struct FunctionMap(Rc<HashMap<String, Rc<Function>>>);
+struct FunctionMap(Rc<HashMap<String, Rc<RefCell<Function>>>>);
 
 #[derive(Default, Clone)]
 struct FieldMap(Rc<RefCell<HashMap<String, Value>>>);
@@ -39,8 +39,8 @@ struct FieldMap(Rc<RefCell<HashMap<String, Value>>>);
 impl Class {
 	pub fn new(
 		name: String,
-		class_methods: HashMap<String, Rc<Function>>,
-		instance_methods: HashMap<String, Rc<Function>>,
+		class_methods: HashMap<String, Rc<RefCell<Function>>>,
+		instance_methods: HashMap<String, Rc<RefCell<Function>>>,
 	) -> Self {
 		let meta_class = Class {
 			name: format!("{name} class"),
@@ -54,7 +54,7 @@ impl Class {
 		}
 	}
 
-	pub fn find_method(&self, name: &String) -> Option<Rc<Function>> {
+	pub fn find_method(&self, name: &String) -> Option<Rc<RefCell<Function>>> {
 		self.methods.get(name).cloned()
 	}
 }
@@ -66,7 +66,7 @@ impl Instance {
 }
 
 impl FunctionMap {
-	fn get(&self, name: &String) -> Option<&Rc<Function>> {
+	fn get(&self, name: &String) -> Option<&Rc<RefCell<Function>>> {
 		self.0.get(name)
 	}
 }
@@ -95,6 +95,12 @@ impl Display for Class {
 	}
 }
 
+impl Display for Instance {
+	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+		write!(f, "{name} instance", name = self.class.name)
+	}
+}
+
 impl PartialEq for Class {
 	fn eq(&self, _other: &Self) -> bool {
 		false
@@ -104,8 +110,9 @@ impl PartialEq for Class {
 impl Callable for Class {
 	fn arity(&self) -> usize {
 		if let Some(initializer) = self.find_method(&String::from("init")) {
-			initializer.arity()
-		} else {
+			initializer.borrow().arity()
+		}
+		else {
 			0
 		}
 	}
@@ -114,10 +121,28 @@ impl Callable for Class {
 		let instance = Instance::new(self.clone());
 
 		if let Some(initializer) = self.find_method(&String::from("init")) {
-			initializer.bind(instance.clone()).call(env, args)?;
+			initializer.borrow().bind(instance.clone()).borrow().call(env, args)?;
 		}
 
-		Ok(Value::Instance(Box::new(instance)))
+		Ok(Value::Dynamic(Rc::new(RefCell::new(instance))))
+	}
+}
+
+impl Dynamic for Class {
+	fn as_callable(&self) -> Option<&dyn Callable> {
+		Some(self)
+	}
+
+	fn as_class(&self) -> Option<&Class> {
+		Some(self)
+	}
+
+	fn as_instance(&self) -> Option<&Instance> {
+		None
+	}
+
+	fn as_instance_mut(&mut self) -> Option<&mut Instance> {
+		None
 	}
 }
 
@@ -137,6 +162,24 @@ impl Object for Class {
 	}
 }
 
+impl Dynamic for Instance {
+	fn as_callable(&self) -> Option<&dyn Callable> {
+		None
+	}
+
+	fn as_class(&self) -> Option<&Class> {
+		None
+	}
+
+	fn as_instance(&self) -> Option<&Instance> {
+		Some(self)
+	}
+
+	fn as_instance_mut(&mut self) -> Option<&mut Instance> {
+		Some(self)
+	}
+}
+
 impl Object for Instance {
 	fn get(&self, name: &Token) -> Result<Value, Error> {
 		if self.fields.contains(&name.text) {
@@ -144,7 +187,7 @@ impl Object for Instance {
 		}
 
 		if let Some(method) = self.class.find_method(&name.text) {
-			return Ok(Value::Function(method.bind(self.clone())));
+			return Ok(Value::Dynamic(method.borrow().bind(self.clone())));
 		}
 
 		Err(Error::undefined_value(name))

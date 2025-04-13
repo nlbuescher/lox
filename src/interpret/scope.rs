@@ -46,7 +46,8 @@ impl Scope {
 		let name = name.into();
 		if let Some(old_value) = self.values.get_mut(&name) {
 			old_value.replace(value);
-		} else {
+		}
+		else {
 			self.values.insert(name, RefCell::new(value));
 		}
 	}

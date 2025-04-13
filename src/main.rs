@@ -19,7 +19,8 @@ pub fn main() -> Result<(), Error> {
 
 	if let Some(ref filename) = args.filename {
 		run_file(filename, args.verbose)
-	} else {
+	}
+	else {
 		run_prompt(args.verbose)
 	}
 }

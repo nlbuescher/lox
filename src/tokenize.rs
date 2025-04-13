@@ -131,7 +131,8 @@ impl Tokens<'_> {
 
 		if self.peek().is_none() {
 			Err(self.get_error(ErrorKind::UnterminatedString))
-		} else {
+		}
+		else {
 			// consume the closing quote
 			self.advance(Whitespace::Ignore);
 
@@ -245,7 +246,8 @@ impl Iterator for Tokens<'_> {
 						self.advance(Whitespace::Include);
 					}
 					Some(Ok(self.get_token(TokenKind::Comment)))
-				} else {
+				}
+				else {
 					Some(Ok(self.get_token(TokenKind::Slash)))
 				}
 			}
@@ -265,11 +267,11 @@ impl Iterator for Tokens<'_> {
 
 #[cfg(test)]
 mod tests {
-	use std::string::String;
+    use std::string::String;
 
-	use super::*;
+    use super::*;
 
-	#[test]
+    #[test]
 	pub fn empty_source() {
 		let input = "";
 		let expected = vec![Ok(Token::with_text(Location::new(1, 1), TokenKind::EndOfFile, ""))];

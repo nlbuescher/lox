@@ -1,11 +1,13 @@
+use std::cell::RefCell;
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 use std::rc::Rc;
 
 use crate::error::Error;
+use crate::interpret::dynamic::Dynamic;
 use crate::interpret::error::Break;
 use crate::interpret::visit::Visitor;
-use crate::interpret::{Callable, Environment, Instance, Scope};
+use crate::interpret::{Callable, Class, Environment, Instance, Scope};
 use crate::location::Locate;
 use crate::parse::BlockStatement;
 use crate::tokenize::{Token, TokenKind};
@@ -38,16 +40,16 @@ impl Function {
 		Function { name, is_initializer, scope, parameters, body }
 	}
 
-	pub fn bind(&self, instance: Instance) -> Rc<Function> {
+	pub fn bind(&self, instance: Instance) -> Rc<RefCell<Function>> {
 		let mut scope = Scope::with_parent(&self.scope);
-		scope.define("this", Some(Value::Instance(Box::new(instance))));
-		Rc::new(Function::new(
+		scope.define("this", Some(Value::Dynamic(Rc::new(RefCell::new(instance)))));
+		Rc::new(RefCell::new(Function::new(
 			self.name.clone(),
 			self.is_initializer,
 			scope,
 			self.parameters.clone(),
 			self.body.clone(),
-		))
+		)))
 	}
 }
 
@@ -64,7 +66,8 @@ impl Display for Function {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		if let Some(ref name) = self.name {
 			write!(f, "<fn {name}")
-		} else {
+		}
+		else {
 			write!(f, "<anonymous fn>")
 		}
 	}
@@ -121,5 +124,41 @@ impl Callable for NativeFunction {
 
 	fn call(&self, env: &mut Environment, args: &[Value]) -> Result<Value, Error> {
 		self.body.deref()(env, args)
+	}
+}
+
+impl Dynamic for Function {
+	fn as_callable(&self) -> Option<&dyn Callable> {
+		Some(self)
+	}
+
+	fn as_class(&self) -> Option<&Class> {
+		None
+	}
+
+	fn as_instance(&self) -> Option<&Instance> {
+		None
+	}
+
+	fn as_instance_mut(&mut self) -> Option<&mut Instance> {
+		None
+	}
+}
+
+impl Dynamic for NativeFunction {
+	fn as_callable(&self) -> Option<&dyn Callable> {
+		Some(self)
+	}
+
+	fn as_class(&self) -> Option<&Class> {
+		None
+	}
+
+	fn as_instance(&self) -> Option<&Instance> {
+		None
+	}
+
+	fn as_instance_mut(&mut self) -> Option<&mut Instance> {
+		None
 	}
 }

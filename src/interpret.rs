@@ -1,4 +1,5 @@
 mod callable;
+mod dynamic;
 mod environment;
 mod error;
 mod function;
@@ -10,14 +11,15 @@ use std::fmt::{Debug, Display, Formatter};
 use std::io::{stdin, BufRead, Write};
 
 pub use callable::Callable;
+pub use dynamic::Dynamic;
 pub use environment::Environment;
-pub use function::Function;
+pub use function::{Function, NativeFunction};
 pub use object::{Class, Instance};
 pub use scope::Scope;
 
 use crate::error::Error;
-use crate::location::Locate;
-use crate::parse::{Expression, Parser};
+use crate::location::Location;
+use crate::parse::Parser;
 use crate::tokenize::Tokens;
 use crate::value::Value;
 
@@ -99,9 +101,20 @@ impl Value {
 			Value::Bool(_) => TypeKind::Bool,
 			Value::Number(_) => TypeKind::Number,
 			Value::String(_) => TypeKind::String,
-			Value::Function(_) => TypeKind::Function,
-			Value::Class(_) => TypeKind::Class,
-			Value::Instance(instance) => TypeKind::Instance(instance.class.name.clone()),
+			Value::Dynamic(dynamic) => {
+				if let Some(_) = dynamic.borrow().as_callable() {
+					TypeKind::Function
+				}
+				else if let Some(_) = dynamic.borrow().as_class() {
+					TypeKind::Class
+				}
+				else if let Some(instance) = dynamic.borrow().as_instance() {
+					TypeKind::Instance(instance.class.name.clone())
+				}
+				else {
+					unreachable!("Unknown dynamic type")
+				}
+			}
 		}
 	}
 
@@ -111,23 +124,21 @@ impl Value {
 			Value::Bool(value) => *value,
 			Value::Number(value) => *value != 0.0,
 			Value::String(value) => !value.is_empty(),
-			Value::Function(_) => true,
-			Value::Class(_) => true,
-			Value::Instance(_) => true,
+			Value::Dynamic(_) => true,
 		}
 	}
 
-	fn as_number(&self, expression: &Expression) -> Result<&f64, Error> {
+	fn as_number(&self, location: &Location) -> Result<&f64, Error> {
 		match self {
 			Value::Number(n) => Ok(n),
-			_ => Err(Error::type_error(expression.locate(), TypeKind::Number, self.type_kind())),
+			_ => Err(Error::type_error(location, TypeKind::Number, self.type_kind())),
 		}
 	}
 
-	fn as_string(&self, expression: &Expression) -> Result<&String, Error> {
+	fn as_string(&self, location: &Location) -> Result<&String, Error> {
 		match self {
 			Value::String(s) => Ok(s),
-			_ => Err(Error::type_error(expression.locate(), TypeKind::String, self.type_kind())),
+			_ => Err(Error::type_error(location, TypeKind::String, self.type_kind())),
 		}
 	}
 }
@@ -154,12 +165,12 @@ impl Display for TypeKind {
 
 #[cfg(test)]
 mod tests {
-	use std::cell::RefCell;
-	use std::rc::Rc;
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
-	use super::*;
+    use super::*;
 
-	fn capture_run(input: &str) -> String {
+    fn capture_run(input: &str) -> String {
 		let output = Rc::new(RefCell::new(Vec::new()));
 		let mut env = Environment::with_output(output.clone());
 		let result = run(input, &mut env, false);

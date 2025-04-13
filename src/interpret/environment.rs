@@ -37,7 +37,7 @@ impl Environment {
 
 		environment.scope.borrow_mut().define(
 			"clock",
-			Some(Value::Function(Rc::new(NativeFunction::new(0, |_, _| {
+			Some(Value::Dynamic(Rc::new(RefCell::new(NativeFunction::new(0, |_, _| {
 				use std::time::{SystemTime, UNIX_EPOCH};
 
 				let now = SystemTime::now();
@@ -46,7 +46,7 @@ impl Environment {
 				let nanos = duration.subsec_nanos() as f64 / 1_000_000_000.0;
 
 				Ok(Value::Number(seconds + nanos))
-			})))),
+			}))))),
 		);
 
 		environment
@@ -65,9 +65,9 @@ impl Environment {
 
 	pub fn execute(&mut self, statement: &dyn Statement) -> Result<Value, Error> {
 		self.visit_statement(statement).map_err(|error| match error {
-			Break::Error(error) => error,
-			Break::Return(_) => unreachable!("If you've landed here, the parser allowed a return statement outside of a function")
-		})
+            Break::Error(error) => error,
+            Break::Return(_) => unreachable!("If you've landed here, the parser allowed a return statement outside of a function")
+        })
 	}
 }
 
@@ -155,28 +155,29 @@ impl Visitor<Value> for Environment {
 		let mut instance_methods = HashMap::new();
 
 		for method in methods {
-			let function = Rc::new(Function::new(
+			let function = Rc::new(RefCell::new(Function::new(
 				Some(method.name.text.clone()),
 				method.name.text == "init",
 				self.scope.borrow().clone(),
 				method.parameters.clone(),
 				method.body.clone(),
-			));
+			)));
 
 			if matches!(method.keyword, Some(ref keyword) if keyword.kind == TokenKind::Class) {
 				class_methods.insert(method.name.text.clone(), function);
-			} else {
+			}
+			else {
 				instance_methods.insert(method.name.text.clone(), function);
 			}
 		}
 
 		self.scope.borrow_mut().define(
 			&name.text,
-			Some(Value::Class(Rc::new(Class::new(
+			Some(Value::Dynamic(Rc::new(RefCell::new(Class::new(
 				name.text.clone(),
 				class_methods,
 				instance_methods,
-			)))),
+			))))),
 		);
 
 		Ok(Value::Nil)
@@ -237,7 +238,8 @@ impl Visitor<Value> for Environment {
 
 		if condition.is_truthy() {
 			self.visit_statement(then_branch)?;
-		} else if let Some(else_branch) = else_branch {
+		}
+		else if let Some(else_branch) = else_branch {
 			self.visit_statement(else_branch)?;
 		}
 
@@ -335,38 +337,40 @@ impl Visitor<Value> for Environment {
 			let left_value = self.visit_expression(left)?;
 			if operator.kind == TokenKind::Or && left_value.is_truthy() || !left_value.is_truthy() {
 				Ok(left_value)
-			} else {
+			}
+			else {
 				self.visit_expression(right)
 			}
-		} else {
+		}
+		else {
 			let left_value = self.visit_expression(left)?;
 			let right_value = self.visit_expression(right)?;
 
 			match operator.kind {
 				TokenKind::Greater => {
-					let left_number = left_value.as_number(left)?;
-					let right_number = right_value.as_number(right)?;
+					let left_number = left_value.as_number(left.locate())?;
+					let right_number = right_value.as_number(right.locate())?;
 
 					Ok(Value::Bool(left_number > right_number))
 				}
 
 				TokenKind::GreaterEqual => {
-					let left_number = left_value.as_number(left)?;
-					let right_number = right_value.as_number(right)?;
+					let left_number = left_value.as_number(left.locate())?;
+					let right_number = right_value.as_number(right.locate())?;
 
 					Ok(Value::Bool(left_number >= right_number))
 				}
 
 				TokenKind::Less => {
-					let left_number = left_value.as_number(left)?;
-					let right_number = right_value.as_number(right)?;
+					let left_number = left_value.as_number(left.locate())?;
+					let right_number = right_value.as_number(right.locate())?;
 
 					Ok(Value::Bool(left_number < right_number))
 				}
 
 				TokenKind::LessEqual => {
-					let left_number = left_value.as_number(left)?;
-					let right_number = right_value.as_number(right)?;
+					let left_number = left_value.as_number(left.locate())?;
+					let right_number = right_value.as_number(right.locate())?;
 
 					Ok(Value::Bool(left_number <= right_number))
 				}
@@ -376,36 +380,36 @@ impl Visitor<Value> for Environment {
 				TokenKind::EqualEqual => Ok(Value::Bool(left_value == right_value)),
 
 				TokenKind::Minus => {
-					let left_number = left_value.as_number(left)?;
-					let right_number = right_value.as_number(right)?;
+					let left_number = left_value.as_number(left.locate())?;
+					let right_number = right_value.as_number(right.locate())?;
 
 					Ok(Value::Number(left_number - right_number))
 				}
 
-				TokenKind::Plus => match left_value.as_number(left) {
+				TokenKind::Plus => match left_value.as_number(left.locate()) {
 					Ok(left_number) => {
-						let right_number = right_value.as_number(right)?;
+						let right_number = right_value.as_number(right.locate())?;
 
 						Ok(Value::Number(left_number + right_number))
 					}
 					Err(_) => {
-						let left_string = left_value.as_string(left)?;
-						let right_string = right_value.as_string(right)?;
+						let left_string = left_value.as_string(left.locate())?;
+						let right_string = right_value.as_string(right.locate())?;
 
 						Ok(Value::String(format!("{left_string}{right_string}")))
 					}
 				},
 
 				TokenKind::Slash => {
-					let left_number = left_value.as_number(left)?;
-					let right_number = right_value.as_number(right)?;
+					let left_number = left_value.as_number(left.locate())?;
+					let right_number = right_value.as_number(right.locate())?;
 
 					Ok(Value::Number(left_number / right_number))
 				}
 
 				TokenKind::Star => {
-					let left_number = left_value.as_number(left)?;
-					let right_number = right_value.as_number(right)?;
+					let left_number = left_value.as_number(left.locate())?;
+					let right_number = right_value.as_number(right.locate())?;
 
 					Ok(Value::Number(left_number * right_number))
 				}
@@ -428,22 +432,25 @@ impl Visitor<Value> for Environment {
 			.map(|argument| self.visit_expression(argument))
 			.collect::<Result<Vec<Value>, Error>>()?;
 
-		let callable = if let Value::Function(function) = callee {
-			function
-		} else if let Value::Class(class) = callee {
-			class
-		} else {
-			return Err(Error::not_callable(open_paren.locate()));
-		};
-
-		if arguments.len() == callable.arity() {
-			Ok(callable.call(self, &arguments)?)
-		} else {
-			Err(Error::unexpected_number_of_arguments(
-				open_paren.locate(),
-				callable.arity(),
-				arguments.len(),
-			))
+		if let Value::Dynamic(dynamic) = callee {
+			if let Some(callable) = dynamic.borrow().as_callable() {
+				if arguments.len() == callable.arity() {
+					Ok(callable.call(self, &arguments)?)
+				}
+				else {
+					Err(Error::unexpected_number_of_arguments(
+						open_paren.locate(),
+						callable.arity(),
+						arguments.len(),
+					))
+				}
+			}
+			else {
+				Err(Error::not_callable(open_paren.locate()))
+			}
+		}
+		else {
+			Err(Error::not_callable(open_paren.locate()))
 		}
 	}
 
@@ -452,24 +459,26 @@ impl Visitor<Value> for Environment {
 		parameters: &[Token],
 		body: &Rc<BlockStatement>,
 	) -> Result<Value, Error> {
-		Ok(Value::Function(Rc::new(Function::new(
+		Ok(Value::Dynamic(Rc::new(RefCell::new(Function::new(
 			None,
 			false,
 			self.scope.borrow().clone(),
 			Vec::from(parameters),
 			body.clone(),
-		))))
+		)))))
 	}
 
 	fn visit_get(&mut self, object: &Expression, property: &Token) -> Result<Value, Error> {
 		let object = self.visit_expression(object)?;
 
-		if let Value::Instance(instance) = object {
-			return instance.get(property);
-		}
+		if let Value::Dynamic(dynamic) = &object {
+			if let Some(instance) = dynamic.borrow().as_instance() {
+				return instance.get(property);
+			}
 
-		if let Value::Class(class) = object {
-			return class.get(property);
+			if let Some(class) = dynamic.borrow().as_class() {
+				return class.get(property);
+			}
 		}
 
 		Err(Error::type_error(
@@ -502,13 +511,15 @@ impl Visitor<Value> for Environment {
 	) -> Result<Value, Error> {
 		let object = self.visit_expression(object)?;
 
-		if let Value::Instance(mut instance) = object {
-			let value = self.visit_expression(value)?;
-			instance.set(property, value.clone());
-			Ok(value)
-		} else {
-			Err(Error::not_instance(property.locate()))
+		if let Value::Dynamic(dynamic) = object {
+			if let Some(instance) = dynamic.borrow_mut().as_instance_mut() {
+				let value = self.visit_expression(value)?;
+				instance.set(property, value.clone());
+				return Ok(value);
+			}
 		}
+
+		Err(Error::not_instance(property.locate()))
 	}
 
 	fn visit_this(&mut self, keyword: &Token) -> Result<Value, Error> {
@@ -522,7 +533,7 @@ impl Visitor<Value> for Environment {
 			TokenKind::Bang => Ok(Value::Bool(!right_value.is_truthy())),
 
 			TokenKind::Minus => {
-				let right_number = right_value.as_number(right)?;
+				let right_number = right_value.as_number(right.locate())?;
 
 				Ok(Value::Number(-right_number))
 			}
