@@ -4,12 +4,25 @@ use std::fmt::{Display, Formatter};
 use std::rc::Rc;
 
 use crate::error::Error;
-use crate::interpret::{Callable, Dynamic, Environment, Function};
+use crate::interpret::{Callable, Environment, Function};
 use crate::tokenize::Token;
 use crate::value::Value;
 
-pub trait Object {
+pub trait Object: ToString {
+	fn as_callable(&self) -> Option<&dyn Callable>;
+
+	fn as_class(&self) -> Option<&Class>;
+
+	fn as_instance(&self) -> Option<&Instance>;
+
+	fn as_instance_mut(&mut self) -> Option<&mut Instance>;
+}
+
+pub trait Get {
 	fn get(&self, name: &Token) -> Result<Value, Error>;
+}
+
+pub trait Set {
 	fn set(&mut self, name: &Token, value: Value);
 }
 
@@ -124,11 +137,11 @@ impl Callable for Class {
 			initializer.borrow().bind(instance.clone()).borrow().call(env, args)?;
 		}
 
-		Ok(Value::Dynamic(Rc::new(RefCell::new(instance))))
+		Ok(Value::Object(Rc::new(RefCell::new(instance))))
 	}
 }
 
-impl Dynamic for Class {
+impl Object for Class {
 	fn as_callable(&self) -> Option<&dyn Callable> {
 		Some(self)
 	}
@@ -146,7 +159,7 @@ impl Dynamic for Class {
 	}
 }
 
-impl Object for Class {
+impl Get for Class {
 	fn get(&self, name: &Token) -> Result<Value, Error> {
 		if let Some(ref instance) = self.instance {
 			return instance.get(name);
@@ -154,7 +167,9 @@ impl Object for Class {
 
 		Err(Error::undefined_value(name))
 	}
+}
 
+impl Set for Class {
 	fn set(&mut self, name: &Token, value: Value) {
 		if let Some(ref mut instance) = self.instance {
 			instance.set(name, value);
@@ -162,7 +177,7 @@ impl Object for Class {
 	}
 }
 
-impl Dynamic for Instance {
+impl Object for Instance {
 	fn as_callable(&self) -> Option<&dyn Callable> {
 		None
 	}
@@ -180,19 +195,21 @@ impl Dynamic for Instance {
 	}
 }
 
-impl Object for Instance {
+impl Get for Instance {
 	fn get(&self, name: &Token) -> Result<Value, Error> {
 		if self.fields.contains(&name.text) {
 			return Ok(self.fields.get(&name.text).unwrap());
 		}
 
 		if let Some(method) = self.class.find_method(&name.text) {
-			return Ok(Value::Dynamic(method.borrow().bind(self.clone())));
+			return Ok(Value::Object(method.borrow().bind(self.clone())));
 		}
 
 		Err(Error::undefined_value(name))
 	}
+}
 
+impl Set for Instance {
 	fn set(&mut self, name: &Token, value: Value) {
 		self.fields.set(&name.text, value);
 	}

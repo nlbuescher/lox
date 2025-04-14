@@ -1,5 +1,4 @@
 mod callable;
-mod dynamic;
 mod environment;
 mod error;
 mod function;
@@ -11,7 +10,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::io::{stdin, BufRead, Write};
 
 pub use callable::Callable;
-pub use dynamic::Dynamic;
+pub use object::Object;
 pub use environment::Environment;
 pub use function::{Function, NativeFunction};
 pub use object::{Class, Instance};
@@ -101,7 +100,7 @@ impl Value {
 			Value::Bool(_) => TypeKind::Bool,
 			Value::Number(_) => TypeKind::Number,
 			Value::String(_) => TypeKind::String,
-			Value::Dynamic(dynamic) => {
+			Value::Object(dynamic) => {
 				if let Some(_) = dynamic.borrow().as_callable() {
 					TypeKind::Function
 				}
@@ -124,7 +123,7 @@ impl Value {
 			Value::Bool(value) => *value,
 			Value::Number(value) => *value != 0.0,
 			Value::String(value) => !value.is_empty(),
-			Value::Dynamic(_) => true,
+			Value::Object(_) => true,
 		}
 	}
 

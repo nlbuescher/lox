@@ -7,7 +7,7 @@ use std::rc::Rc;
 use crate::error::Error;
 use crate::interpret::error::Break;
 use crate::interpret::function::{Function, NativeFunction};
-use crate::interpret::object::Object;
+use crate::interpret::object::{Get, Set};
 use crate::interpret::visit::Visitor;
 use crate::interpret::{Class, Scope, TypeKind};
 use crate::location::Locate;
@@ -37,7 +37,7 @@ impl Environment {
 
 		environment.scope.borrow_mut().define(
 			"clock",
-			Some(Value::Dynamic(Rc::new(RefCell::new(NativeFunction::new(0, |_, _| {
+			Some(Value::Object(Rc::new(RefCell::new(NativeFunction::new(0, |_, _| {
 				use std::time::{SystemTime, UNIX_EPOCH};
 
 				let now = SystemTime::now();
@@ -173,7 +173,7 @@ impl Visitor<Value> for Environment {
 
 		self.scope.borrow_mut().define(
 			&name.text,
-			Some(Value::Dynamic(Rc::new(RefCell::new(Class::new(
+			Some(Value::Object(Rc::new(RefCell::new(Class::new(
 				name.text.clone(),
 				class_methods,
 				instance_methods,
@@ -432,7 +432,7 @@ impl Visitor<Value> for Environment {
 			.map(|argument| self.visit_expression(argument))
 			.collect::<Result<Vec<Value>, Error>>()?;
 
-		if let Value::Dynamic(dynamic) = callee {
+		if let Value::Object(dynamic) = callee {
 			if let Some(callable) = dynamic.borrow().as_callable() {
 				if arguments.len() == callable.arity() {
 					Ok(callable.call(self, &arguments)?)
@@ -459,7 +459,7 @@ impl Visitor<Value> for Environment {
 		parameters: &[Token],
 		body: &Rc<BlockStatement>,
 	) -> Result<Value, Error> {
-		Ok(Value::Dynamic(Rc::new(RefCell::new(Function::new(
+		Ok(Value::Object(Rc::new(RefCell::new(Function::new(
 			None,
 			false,
 			self.scope.borrow().clone(),
@@ -471,7 +471,7 @@ impl Visitor<Value> for Environment {
 	fn visit_get(&mut self, object: &Expression, property: &Token) -> Result<Value, Error> {
 		let object = self.visit_expression(object)?;
 
-		if let Value::Dynamic(dynamic) = &object {
+		if let Value::Object(dynamic) = &object {
 			if let Some(instance) = dynamic.borrow().as_instance() {
 				return instance.get(property);
 			}
@@ -511,7 +511,7 @@ impl Visitor<Value> for Environment {
 	) -> Result<Value, Error> {
 		let object = self.visit_expression(object)?;
 
-		if let Value::Dynamic(dynamic) = object {
+		if let Value::Object(dynamic) = object {
 			if let Some(instance) = dynamic.borrow_mut().as_instance_mut() {
 				let value = self.visit_expression(value)?;
 				instance.set(property, value.clone());

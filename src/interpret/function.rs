@@ -4,8 +4,8 @@ use std::ops::Deref;
 use std::rc::Rc;
 
 use crate::error::Error;
-use crate::interpret::dynamic::Dynamic;
 use crate::interpret::error::Break;
+use crate::interpret::object::Object;
 use crate::interpret::visit::Visitor;
 use crate::interpret::{Callable, Class, Environment, Instance, Scope};
 use crate::location::Locate;
@@ -42,7 +42,7 @@ impl Function {
 
 	pub fn bind(&self, instance: Instance) -> Rc<RefCell<Function>> {
 		let mut scope = Scope::with_parent(&self.scope);
-		scope.define("this", Some(Value::Dynamic(Rc::new(RefCell::new(instance)))));
+		scope.define("this", Some(Value::Object(Rc::new(RefCell::new(instance)))));
 		Rc::new(RefCell::new(Function::new(
 			self.name.clone(),
 			self.is_initializer,
@@ -127,7 +127,7 @@ impl Callable for NativeFunction {
 	}
 }
 
-impl Dynamic for Function {
+impl Object for Function {
 	fn as_callable(&self) -> Option<&dyn Callable> {
 		Some(self)
 	}
@@ -145,7 +145,7 @@ impl Dynamic for Function {
 	}
 }
 
-impl Dynamic for NativeFunction {
+impl Object for NativeFunction {
 	fn as_callable(&self) -> Option<&dyn Callable> {
 		Some(self)
 	}
