@@ -10,10 +10,9 @@ use std::fmt::{Debug, Display, Formatter};
 use std::io::{stdin, BufRead, Write};
 
 pub use callable::Callable;
-pub use object::Object;
 pub use environment::Environment;
 pub use function::{Function, NativeFunction};
-pub use object::{Class, Instance};
+pub use object::{Class, Instance, Object};
 pub use scope::Scope;
 
 use crate::error::Error;
@@ -164,12 +163,12 @@ impl Display for TypeKind {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-    use std::rc::Rc;
+	use std::cell::RefCell;
+	use std::rc::Rc;
 
-    use super::*;
+	use super::*;
 
-    fn capture_run(input: &str) -> String {
+	fn capture_run(input: &str) -> String {
 		let output = Rc::new(RefCell::new(Vec::new()));
 		let mut env = Environment::with_output(output.clone());
 		let result = run(input, &mut env, false);
@@ -268,20 +267,46 @@ Bacon().eat();
 	#[test]
 	fn this() {
 		let input = "\
-class Thing {
-  getCallback() {
-    fun localFunction() {
-      print this;
-    }
-
-    return localFunction;
+class Cake {
+  taste() {
+    var adjective = \"delicious\";
+    print \"The \" + this.flavor + \" cake is \" + adjective + \"!\";
   }
 }
 
-var callback = Thing().getCallback();
-callback();
+var cake = Cake();
+cake.flavor = \"German chocolate\";
+cake.taste();
 ";
-		let expected = "Thing instance\n";
+
+		let expected = "The German chocolate cake is delicious!\n";
+
+		let actual = capture_run(input);
+
+		assert_eq!(expected, actual);
+	}
+
+	#[test]
+	fn print_this() {
+		let input = "\
+print this;
+";
+		let expected = "[  1:7  ] this is undefined\n";
+
+		let actual = capture_run(input);
+
+		assert_eq!(expected, actual);
+	}
+
+	#[test]
+	fn this_in_function() {
+		let input = "\
+fun notAMethod() {
+	print this;
+}
+notAMethod();
+";
+		let expected = "[  2:11 ] this is undefined\n";
 
 		let actual = capture_run(input);
 
