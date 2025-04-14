@@ -267,11 +267,11 @@ impl Iterator for Tokens<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::string::String;
+	use std::string::String;
 
-    use super::*;
+	use super::*;
 
-    #[test]
+	#[test]
 	pub fn empty_source() {
 		let input = "";
 		let expected = vec![Ok(Token::with_text(Location::new(1, 1), TokenKind::EndOfFile, ""))];

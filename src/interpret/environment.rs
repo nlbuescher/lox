@@ -11,10 +11,7 @@ use crate::interpret::object::{Get, Set};
 use crate::interpret::visit::Visitor;
 use crate::interpret::{Class, Scope, TypeKind};
 use crate::location::Locate;
-use crate::parse::{
-	BlockStatement, Expression, ExpressionStatement, FunctionDeclarationStatement, Statement,
-	StatementKind,
-};
+use crate::parse::{Expression, Statement};
 use crate::tokenize::{Token, TokenKind};
 use crate::value::Value;
 
@@ -63,7 +60,7 @@ impl Environment {
 		result
 	}
 
-	pub fn execute(&mut self, statement: &dyn Statement) -> Result<Value, Error> {
+	pub fn execute(&mut self, statement: &Statement) -> Result<Value, Error> {
 		self.visit_statement(statement).map_err(|error| match error {
             Break::Error(error) => error,
             Break::Return(_) => unreachable!("If you've landed here, the parser allowed a return statement outside of a function")
@@ -72,102 +69,86 @@ impl Environment {
 }
 
 impl Visitor<Value> for Environment {
-	fn visit_statement(&mut self, statement: &dyn Statement) -> Result<Value, Break> {
-		match statement.statement_kind() {
-			StatementKind::Block => {
-				let block = statement.as_block().unwrap();
-				self.visit_block(&block.statements)
+	fn visit_statement(&mut self, statement: &Statement) -> Result<Value, Break> {
+		match statement {
+			Statement::Block { statements, .. } => self.visit_block(statements),
+
+			Statement::ClassDeclaration { name, methods, .. } => {
+				self.visit_class_declaration(name, methods)
 			}
 
-			StatementKind::ClassDeclaration => {
-				let class = statement.as_class_declaration().unwrap();
-				self.visit_class_declaration(&class.name, &class.methods)
+			Statement::Expression { expression } => Ok(self.visit_expression(expression)?),
+
+			Statement::For { initializer, condition, increment, body, .. } => self.visit_for(
+				initializer.as_deref(),
+				condition.as_deref(),
+				increment.as_deref(),
+				body,
+			),
+
+			Statement::FunctionDeclaration { name, parameters, body, .. } => {
+				self.visit_function_declaration(name, parameters, body)
 			}
 
-			StatementKind::Expression => {
-				let expression = statement.as_expression().unwrap();
-				Ok(self.visit_expression(&expression.expression)?)
+			Statement::If { condition, then_branch, else_branch, .. } => {
+				let else_branch = else_branch.as_ref().map(|(_, it)| it.deref());
+				self.visit_if(condition, then_branch, else_branch)
 			}
 
-			StatementKind::For => {
-				let for_ = statement.as_for().unwrap();
-				self.visit_for(
-					for_.initializer.as_deref(),
-					for_.condition.as_deref(),
-					for_.increment.as_deref(),
-					&for_.body,
-				)
+			Statement::Print { expression, .. } => self.visit_print(expression),
+
+			Statement::Return { expression, .. } => self.visit_return(expression.as_deref()),
+
+			Statement::VariableDeclaration { name, initializer, .. } => {
+				self.visit_variable_declaration(name, initializer.as_deref())
 			}
 
-			StatementKind::FunctionDeclaration => {
-				let function = statement.as_function_declaration().unwrap();
-				self.visit_function_declaration(
-					&function.name,
-					&function.parameters,
-					&function.body,
-				)
-			}
-
-			StatementKind::If => {
-				let if_ = statement.as_if().unwrap();
-				let else_ = if_.else_branch.as_ref().map(|(_, else_branch)| else_branch.deref());
-				self.visit_if(&if_.condition, if_.then_branch.deref(), else_)
-			}
-
-			StatementKind::Print => {
-				let print = statement.as_print().unwrap();
-				self.visit_print(&print.expression)
-			}
-
-			StatementKind::Return => {
-				let return_ = statement.as_return().unwrap();
-				self.visit_return(return_.expression.as_deref())
-			}
-
-			StatementKind::VariableDeclaration => {
-				let var = statement.as_variable_declaration().unwrap();
-				self.visit_variable_declaration(&var.name, var.initializer.as_deref())
-			}
-
-			StatementKind::While => {
-				let while_ = statement.as_while().unwrap();
-				self.visit_while(&while_.condition, &while_.body)
-			}
+			Statement::While { condition, body, .. } => self.visit_while(condition, body),
 		}
 	}
 
-	fn visit_block(&mut self, statements: &[Box<dyn Statement>]) -> Result<Value, Break> {
+	fn visit_block(&mut self, statements: &[Statement]) -> Result<Value, Break> {
 		let scope = Scope::with_parent(self.scope.borrow().deref());
 
 		self.run_in_scope(scope, |environment| {
 			statements
 				.iter()
-				.try_fold(Value::Nil, |_, statement| environment.visit_statement(statement.deref()))
+				.try_fold(Value::Nil, |_, statement| environment.visit_statement(statement))
 		})
 	}
 
 	fn visit_class_declaration(
 		&mut self,
 		name: &Token,
-		methods: &[FunctionDeclarationStatement],
+		methods: &[Statement],
 	) -> Result<Value, Break> {
 		let mut class_methods = HashMap::new();
 		let mut instance_methods = HashMap::new();
 
 		for method in methods {
-			let function = Rc::new(RefCell::new(Function::new(
-				Some(method.name.text.clone()),
-				method.name.text == "init",
-				self.scope.borrow().clone(),
-				method.parameters.clone(),
-				method.body.clone(),
-			)));
+			if let Statement::FunctionDeclaration {
+				keyword,
+				name: Token { text: name, .. },
+				parameters,
+				body,
+			} = method
+			{
+				let function = Rc::new(RefCell::new(Function::new(
+					Some(name.clone()),
+					name == "init",
+					self.scope.borrow().clone(),
+					parameters.clone(),
+					body.clone(),
+				)));
 
-			if matches!(method.keyword, Some(ref keyword) if keyword.kind == TokenKind::Class) {
-				class_methods.insert(method.name.text.clone(), function);
+				if matches!(keyword, Some(ref keyword) if keyword.kind == TokenKind::Class) {
+					class_methods.insert(name.clone(), function);
+				} else {
+					instance_methods.insert(name.clone(), function);
+				}
 			}
 			else {
-				instance_methods.insert(method.name.text.clone(), function);
+				unreachable!("Found something other than a function declaration in a class body!");
 			}
 		}
 
@@ -185,10 +166,10 @@ impl Visitor<Value> for Environment {
 
 	fn visit_for(
 		&mut self,
-		initializer: Option<&dyn Statement>,
+		initializer: Option<&Statement>,
 		condition: Option<&Expression>,
-		increment: Option<&ExpressionStatement>,
-		body: &BlockStatement,
+		increment: Option<&Statement>,
+		body: &Statement,
 	) -> Result<Value, Break> {
 		let scope = Scope::with_parent(self.scope.borrow().deref());
 
@@ -219,7 +200,7 @@ impl Visitor<Value> for Environment {
 		&mut self,
 		name: &Token,
 		parameters: &[Token],
-		body: &Rc<BlockStatement>,
+		body: &Rc<Statement>,
 	) -> Result<Value, Break> {
 		let function = self.visit_function(parameters, body)?;
 
@@ -231,8 +212,8 @@ impl Visitor<Value> for Environment {
 	fn visit_if(
 		&mut self,
 		condition: &Expression,
-		then_branch: &dyn Statement,
-		else_branch: Option<&dyn Statement>,
+		then_branch: &Statement,
+		else_branch: Option<&Statement>,
 	) -> Result<Value, Break> {
 		let condition = self.visit_expression(condition)?;
 
@@ -277,11 +258,7 @@ impl Visitor<Value> for Environment {
 		Ok(Value::Nil)
 	}
 
-	fn visit_while(
-		&mut self,
-		condition: &Expression,
-		body: &BlockStatement,
-	) -> Result<Value, Break> {
+	fn visit_while(&mut self, condition: &Expression, body: &Statement) -> Result<Value, Break> {
 		while self.visit_expression(condition)?.is_truthy() {
 			self.visit_statement(body)?;
 		}
@@ -457,7 +434,7 @@ impl Visitor<Value> for Environment {
 	fn visit_function(
 		&mut self,
 		parameters: &[Token],
-		body: &Rc<BlockStatement>,
+		body: &Rc<Statement>,
 	) -> Result<Value, Error> {
 		Ok(Value::Object(Rc::new(RefCell::new(Function::new(
 			None,

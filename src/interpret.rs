@@ -75,7 +75,7 @@ pub fn run(source: &str, env: &mut Environment, verbose: bool) -> Result<(), Err
 	}
 
 	for statement in parser {
-		env.execute(&*statement?)?;
+		env.execute(&statement?)?;
 	}
 
 	Ok(())

@@ -6,11 +6,7 @@ use std::iter::Peekable;
 use std::rc::Rc;
 
 pub use expression::Expression;
-pub use statement::{
-	BlockStatement, ClassDeclarationStatement, ExpressionStatement, ForStatement,
-	FunctionDeclarationStatement, IfStatement, PrintStatement, ReturnStatement, Statement,
-	StatementKind, VariableDeclarationStatement, WhileStatement,
-};
+pub use statement::Statement;
 
 use crate::error::{Error, Result};
 use crate::location::Locate;
@@ -57,50 +53,50 @@ impl<'a> Parser<'a> {
 		}
 	}
 
-	fn parse_declaration(&mut self) -> Result<Box<dyn Statement>> {
+	fn parse_declaration(&mut self) -> Result<Statement> {
 		if self.advance_if(TokenKind::Class) {
-			return Ok(Box::new(self.parse_class_declaration()?));
+			return Ok(self.parse_class_declaration()?);
 		}
 
 		if self.advance_if(TokenKind::Fun) {
-			return Ok(Box::new(self.parse_function_declaration()?));
+			return Ok(self.parse_function_declaration()?);
 		}
 
 		if self.advance_if(TokenKind::Var) {
-			return Ok(Box::new(self.parse_variable_declaration()?));
+			return Ok(self.parse_variable_declaration()?);
 		}
 
 		self.parse_statement()
 	}
 
-	fn parse_class_declaration(&mut self) -> Result<ClassDeclarationStatement> {
-		let keyword = Box::new(self.previous());
-		let name = Box::new(self.expect(TokenKind::Identifier, "class name")?);
-		let open_brace = Box::new(self.expect(TokenKind::LeftBrace, "'{' before class body")?);
+	fn parse_class_declaration(&mut self) -> Result<Statement> {
+		let keyword = self.previous();
+		let name = self.expect(TokenKind::Identifier, "class name")?;
+		let open_brace = self.expect(TokenKind::LeftBrace, "'{' before class body")?;
 
 		let mut methods = Vec::new();
 		while !self.check(TokenKind::RightBrace) {
 			methods.push(self.parse_function_declaration()?);
 		}
 
-		let close_brace = Box::new(self.expect(TokenKind::RightBrace, "'}' after class body")?);
+		let close_brace = self.expect(TokenKind::RightBrace, "'}' after class body")?;
 
-		Ok(ClassDeclarationStatement { keyword, name, open_brace, methods, close_brace })
+		Ok(Statement::ClassDeclaration { keyword, name, open_brace, methods, close_brace })
 	}
 
-	fn parse_function_declaration(&mut self) -> Result<FunctionDeclarationStatement> {
+	fn parse_function_declaration(&mut self) -> Result<Statement> {
 		self.advance_if(TokenKind::Class);
 
 		let previous = self.previous();
 
 		let keyword = if matches!(previous.kind, TokenKind::Fun | TokenKind::Class) {
-			Some(Box::new(previous))
+			Some(previous)
 		}
 		else {
 			None
 		};
 
-		let name = Box::new(self.expect(TokenKind::Identifier, "function name")?);
+		let name = self.expect(TokenKind::Identifier, "function name")?;
 
 		self.expect(TokenKind::LeftParen, "'(' after function name")?;
 
@@ -118,12 +114,12 @@ impl<'a> Parser<'a> {
 
 		let body = Rc::from(self.parse_block()?);
 
-		Ok(FunctionDeclarationStatement { keyword, name, parameters, body })
+		Ok(Statement::FunctionDeclaration { keyword, name, parameters, body })
 	}
 
-	fn parse_variable_declaration(&mut self) -> Result<VariableDeclarationStatement> {
-		let keyword = Box::new(self.previous());
-		let name = Box::new(self.expect(TokenKind::Identifier, "variable name")?);
+	fn parse_variable_declaration(&mut self) -> Result<Statement> {
+		let keyword = self.previous();
+		let name = self.expect(TokenKind::Identifier, "variable name")?;
 
 		let initializer = if self.advance_if(TokenKind::Equal) {
 			Some(Box::new(self.parse_expression()?))
@@ -134,39 +130,39 @@ impl<'a> Parser<'a> {
 
 		self.expect(TokenKind::Semicolon, "';' after variable declaration")?;
 
-		Ok(VariableDeclarationStatement { keyword, name, initializer })
+		Ok(Statement::VariableDeclaration { keyword, name, initializer })
 	}
 
-	fn parse_statement(&mut self) -> Result<Box<dyn Statement>> {
+	fn parse_statement(&mut self) -> Result<Statement> {
 		if self.advance_if(TokenKind::LeftBrace) {
-			return Ok(Box::new(self.parse_block()?));
+			return Ok(self.parse_block()?);
 		}
 
 		if self.advance_if(TokenKind::For) {
-			return Ok(Box::new(self.parse_for_statement()?));
+			return Ok(self.parse_for_statement()?);
 		}
 
 		if self.advance_if(TokenKind::If) {
-			return Ok(Box::new(self.parse_if_statement()?));
+			return Ok(self.parse_if_statement()?);
 		}
 
 		if self.advance_if(TokenKind::Print) {
-			return Ok(Box::new(self.parse_print_statement()?));
+			return Ok(self.parse_print_statement()?);
 		}
 
 		if self.advance_if(TokenKind::Return) {
-			return Ok(Box::new(self.parse_return_statement()?));
+			return Ok(self.parse_return_statement()?);
 		}
 
 		if self.advance_if(TokenKind::While) {
-			return Ok(Box::new(self.parse_while_statement()?));
+			return Ok(self.parse_while_statement()?);
 		}
 
-		Ok(Box::new(self.parse_expression_statement()?))
+		Ok(self.parse_expression_statement()?)
 	}
 
-	fn parse_return_statement(&mut self) -> Result<ReturnStatement> {
-		let keyword = Box::new(self.previous());
+	fn parse_return_statement(&mut self) -> Result<Statement> {
+		let keyword = self.previous();
 
 		let expression = if !self.check(TokenKind::Semicolon) {
 			Some(Box::new(self.parse_expression()?))
@@ -177,28 +173,28 @@ impl<'a> Parser<'a> {
 
 		self.expect(TokenKind::Semicolon, "';' after return value")?;
 
-		Ok(ReturnStatement { keyword, expression })
+		Ok(Statement::Return { keyword, expression })
 	}
 
-	fn parse_block(&mut self) -> Result<BlockStatement> {
-		let open_brace = Box::new(self.previous());
+	fn parse_block(&mut self) -> Result<Statement> {
+		let open_brace = self.previous();
 
 		let mut statements = Vec::new();
 		while !self.check(TokenKind::RightBrace) {
 			statements.push(self.parse_declaration()?);
 		}
 
-		let close_brace = Box::new(self.expect(TokenKind::RightBrace, "'}' after block")?);
+		let close_brace = self.expect(TokenKind::RightBrace, "'}' after block")?;
 
-		Ok(BlockStatement { open_brace, statements, close_brace })
+		Ok(Statement::Block { open_brace, statements, close_brace })
 	}
 
-	fn parse_for_statement(&mut self) -> Result<ForStatement> {
-		let keyword = Box::new(self.previous());
+	fn parse_for_statement(&mut self) -> Result<Statement> {
+		let keyword = self.previous();
 
 		self.expect(TokenKind::LeftParen, "'(' after 'for'")?;
 
-		let initializer: Option<Box<dyn Statement>> = if self.advance_if(TokenKind::Semicolon) {
+		let initializer: Option<Box<Statement>> = if self.advance_if(TokenKind::Semicolon) {
 			None
 		}
 		else if self.advance_if(TokenKind::Var) {
@@ -218,7 +214,7 @@ impl<'a> Parser<'a> {
 		self.expect(TokenKind::Semicolon, "';' after for condition")?;
 
 		let increment = if !self.check(TokenKind::RightParen) {
-			Some(Box::new(ExpressionStatement { expression: Box::new(self.parse_expression()?) }))
+			Some(Box::new(Statement::Expression { expression: Box::new(self.parse_expression()?) }))
 		}
 		else {
 			None
@@ -227,19 +223,19 @@ impl<'a> Parser<'a> {
 		self.expect(TokenKind::RightParen, "')' after for clauses")?;
 		self.expect(TokenKind::LeftBrace, "block after for clauses")?;
 
-		let body = self.parse_block()?;
+		let body = Box::new(self.parse_block()?);
 
-		Ok(ForStatement { keyword, initializer, condition, increment, body: Box::new(body) })
+		Ok(Statement::For { keyword, initializer, condition, increment, body })
 	}
 
-	fn parse_if_statement(&mut self) -> Result<IfStatement> {
-		let keyword = Box::new(self.previous());
+	fn parse_if_statement(&mut self) -> Result<Statement> {
+		let keyword = self.previous();
 
 		let condition = Box::new(self.parse_expression()?);
 
 		self.expect(TokenKind::LeftBrace, "'{' after if condition")?;
 
-		let then_branch = self.parse_block()?;
+		let then_branch = Box::new(self.parse_block()?);
 
 		let else_branch = if self.advance_if(TokenKind::Else) {
 			let keyword = self.previous();
@@ -247,41 +243,41 @@ impl<'a> Parser<'a> {
 			let next = self
 				.expect_any(&[TokenKind::If, TokenKind::LeftBrace], "'if' or '{' after 'else'")?;
 
-			let else_branch: Box<dyn Statement> = if next.kind == TokenKind::If {
+			let else_block: Box<Statement> = if next.kind == TokenKind::If {
 				Box::new(self.parse_if_statement()?)
 			}
 			else {
 				Box::new(self.parse_block()?)
 			};
 
-			Some((keyword, else_branch))
+			Some((keyword, else_block))
 		}
 		else {
 			None
 		};
 
-		Ok(IfStatement { keyword, condition, then_branch: Box::new(then_branch), else_branch })
+		Ok(Statement::If { keyword, condition, then_branch, else_branch })
 	}
 
-	fn parse_print_statement(&mut self) -> Result<PrintStatement> {
-		let keyword = Box::new(self.previous());
-		let expression = self.parse_expression()?;
+	fn parse_print_statement(&mut self) -> Result<Statement> {
+		let keyword = self.previous();
+		let expression = Box::new(self.parse_expression()?);
 		self.expect(TokenKind::Semicolon, "';' after expression")?;
-		Ok(PrintStatement { keyword, expression: Box::new(expression) })
+		Ok(Statement::Print { keyword, expression })
 	}
 
-	fn parse_while_statement(&mut self) -> Result<WhileStatement> {
-		let keyword = Box::new(self.previous());
+	fn parse_while_statement(&mut self) -> Result<Statement> {
+		let keyword = self.previous();
 		let condition = Box::new(self.parse_expression()?);
 		self.expect(TokenKind::LeftBrace, "'{' after while condition")?;
-		let body = self.parse_block()?;
-		Ok(WhileStatement { keyword, condition, body: Box::new(body) })
+		let body = Box::new(self.parse_block()?);
+		Ok(Statement::While { keyword, condition, body })
 	}
 
-	fn parse_expression_statement(&mut self) -> Result<ExpressionStatement> {
-		let expression = self.parse_expression()?;
+	fn parse_expression_statement(&mut self) -> Result<Statement> {
+		let expression = Box::new(self.parse_expression()?);
 		self.expect(TokenKind::Semicolon, "';' after expression")?;
-		Ok(ExpressionStatement { expression: Box::new(expression) })
+		Ok(Statement::Expression { expression })
 	}
 
 	fn parse_expression(&mut self) -> Result<Expression> {
@@ -293,14 +289,14 @@ impl<'a> Parser<'a> {
 
 		if self.advance_if(TokenKind::Equal) {
 			let equals = self.previous();
-			let value = self.parse_assignment()?;
+			let value = Box::new(self.parse_assignment()?);
 
 			if let Expression::Variable(name) = expression {
-				return Ok(Expression::Assignment { name, expression: Box::new(value) });
+				return Ok(Expression::Assignment { name, expression: value });
 			}
 
 			if let Expression::Get { object, property } = expression {
-				return Ok(Expression::Set { object, property, value: Box::new(value) });
+				return Ok(Expression::Set { object, property, value });
 			}
 
 			return Err(Error::invalid_assignment(equals.locate().clone()));
@@ -315,7 +311,7 @@ impl<'a> Parser<'a> {
 		while self.advance_if(TokenKind::Or) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: Box::new(self.previous()),
+				operator: self.previous(),
 				right: Box::new(self.parse_and()?),
 			}
 		}
@@ -329,7 +325,7 @@ impl<'a> Parser<'a> {
 		while self.advance_if(TokenKind::And) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: Box::new(self.previous()),
+				operator: self.previous(),
 				right: Box::new(self.parse_equality()?),
 			}
 		}
@@ -343,7 +339,7 @@ impl<'a> Parser<'a> {
 		while self.advance_if_any(&[TokenKind::BangEqual, TokenKind::EqualEqual]) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: Box::new(self.previous()),
+				operator: self.previous(),
 				right: Box::new(self.parse_comparison()?),
 			}
 		}
@@ -362,7 +358,7 @@ impl<'a> Parser<'a> {
 		]) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: Box::new(self.previous()),
+				operator: self.previous(),
 				right: Box::new(self.parse_term()?),
 			}
 		}
@@ -376,7 +372,7 @@ impl<'a> Parser<'a> {
 		while self.advance_if_any(&[TokenKind::Minus, TokenKind::Plus]) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: Box::new(self.previous()),
+				operator: self.previous(),
 				right: Box::new(self.parse_factor()?),
 			}
 		}
@@ -390,7 +386,7 @@ impl<'a> Parser<'a> {
 		while self.advance_if_any(&[TokenKind::Slash, TokenKind::Star]) {
 			expression = Expression::Binary {
 				left: Box::new(expression),
-				operator: Box::new(self.previous()),
+				operator: self.previous(),
 				right: Box::new(self.parse_unary()?),
 			}
 		}
@@ -401,7 +397,7 @@ impl<'a> Parser<'a> {
 	fn parse_unary(&mut self) -> Result<Expression> {
 		if self.advance_if_any(&[TokenKind::Bang, TokenKind::Minus]) {
 			Ok(Expression::Unary {
-				operator: Box::new(self.previous()),
+				operator: self.previous(),
 				expression: Box::new(self.parse_unary()?),
 			})
 		}
@@ -415,9 +411,9 @@ impl<'a> Parser<'a> {
 
 		loop {
 			if self.advance_if(TokenKind::LeftParen) {
-				let open_paren = Box::new(self.previous());
+				let open_paren = self.previous();
 
-				let mut arguments = Vec::new();
+				let mut arguments = Vec::<Expression>::new();
 
 				if !self.check(TokenKind::RightParen) {
 					arguments.push(self.parse_expression()?);
@@ -427,8 +423,7 @@ impl<'a> Parser<'a> {
 					}
 				}
 
-				let close_paren =
-					Box::new(self.expect(TokenKind::RightParen, "')' after arguments")?);
+				let close_paren = self.expect(TokenKind::RightParen, "')' after arguments")?;
 
 				expression = Expression::Call {
 					callee: Box::new(expression),
@@ -438,8 +433,7 @@ impl<'a> Parser<'a> {
 				};
 			}
 			else if self.advance_if(TokenKind::Dot) {
-				let property =
-					Box::new(self.expect(TokenKind::Identifier, "property name after '.'")?);
+				let property = self.expect(TokenKind::Identifier, "property name after '.'")?;
 				expression = Expression::Get { object: Box::new(expression), property };
 			}
 			else {
@@ -458,11 +452,11 @@ impl<'a> Parser<'a> {
 			TokenKind::Number,
 			TokenKind::String,
 		]) {
-			return Ok(Expression::Literal(Box::new(self.previous())));
+			return Ok(Expression::Literal(self.previous()));
 		}
 
 		if self.advance_if(TokenKind::This) {
-			return Ok(Expression::This(Box::new(self.previous())));
+			return Ok(Expression::This(self.previous()));
 		}
 
 		if self.advance_if(TokenKind::LeftParen) {
@@ -472,13 +466,13 @@ impl<'a> Parser<'a> {
 		}
 
 		if self.advance_if(TokenKind::Identifier) {
-			return Ok(Expression::Variable(Box::new(self.previous())));
+			return Ok(Expression::Variable(self.previous()));
 		}
 
 		if self.advance_if(TokenKind::Fun) {
-			let keyword = Box::new(self.previous());
+			let keyword = self.previous();
 
-			let open_paren = Box::new(self.expect(TokenKind::LeftParen, "'(' after fun keyword")?);
+			let open_paren = self.expect(TokenKind::LeftParen, "'(' after fun keyword")?;
 
 			let mut parameters = Vec::new();
 			if !self.check(TokenKind::RightParen) {
@@ -489,7 +483,7 @@ impl<'a> Parser<'a> {
 				}
 			}
 
-			let close_paren = Box::new(self.expect(TokenKind::RightParen, "')' after parameters")?);
+			let close_paren = self.expect(TokenKind::RightParen, "')' after parameters")?;
 
 			self.expect(TokenKind::LeftBrace, "'{' before function body")?;
 
@@ -559,7 +553,7 @@ impl<'a> Parser<'a> {
 }
 
 impl Iterator for Parser<'_> {
-	type Item = Result<Box<dyn Statement>>;
+	type Item = Result<Statement>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		if matches!(self.peek(), Ok(token) if token.kind == TokenKind::EndOfFile) {

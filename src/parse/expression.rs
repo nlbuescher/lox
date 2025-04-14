@@ -2,50 +2,50 @@ use std::fmt::{Display, Formatter};
 use std::rc::Rc;
 
 use crate::location::{Locate, Location};
-use crate::parse::BlockStatement;
+use crate::parse::Statement;
 use crate::tokenize::Token;
 
 #[derive(Clone)]
 pub enum Expression {
 	Assignment {
-		name: Box<Token>,
+		name: Token,
 		expression: Box<Expression>,
 	},
 	Binary {
 		left: Box<Expression>,
-		operator: Box<Token>,
+		operator: Token,
 		right: Box<Expression>,
 	},
 	Call {
 		callee: Box<Expression>,
-		open_paren: Box<Token>,
+		open_paren: Token,
 		arguments: Vec<Expression>,
-		close_paren: Box<Token>,
+		close_paren: Token,
 	},
 	Function {
-		keyword: Box<Token>,
-		open_paren: Box<Token>,
+		keyword: Token,
+		open_paren: Token,
 		parameters: Vec<Token>,
-		close_paren: Box<Token>,
-		body: Rc<BlockStatement>,
+		close_paren: Token,
+		body: Rc<Statement>,
 	},
 	Get {
 		object: Box<Expression>,
-		property: Box<Token>,
+		property: Token,
 	},
 	Grouping(Box<Expression>),
-	Literal(Box<Token>),
+	Literal(Token),
 	Set {
 		object: Box<Expression>,
-		property: Box<Token>,
+		property: Token,
 		value: Box<Expression>,
 	},
-	This(Box<Token>),
+	This(Token),
 	Unary {
-		operator: Box<Token>,
+		operator: Token,
 		expression: Box<Expression>,
 	},
-	Variable(Box<Token>),
+	Variable(Token),
 }
 
 impl Display for Expression {

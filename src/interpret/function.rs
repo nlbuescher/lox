@@ -9,7 +9,7 @@ use crate::interpret::object::Object;
 use crate::interpret::visit::Visitor;
 use crate::interpret::{Callable, Class, Environment, Instance, Scope};
 use crate::location::Locate;
-use crate::parse::BlockStatement;
+use crate::parse::Statement;
 use crate::tokenize::{Token, TokenKind};
 use crate::value::Value;
 
@@ -19,7 +19,7 @@ pub struct Function {
 	is_initializer: bool,
 	scope: Scope,
 	parameters: Vec<Token>,
-	pub body: Rc<BlockStatement>,
+	pub body: Rc<Statement>,
 }
 
 pub struct NativeFunction {
@@ -35,7 +35,7 @@ impl Function {
 		is_initializer: bool,
 		scope: Scope,
 		parameters: Vec<Token>,
-		body: Rc<BlockStatement>,
+		body: Rc<Statement>,
 	) -> Self {
 		Function { name, is_initializer, scope, parameters, body }
 	}
