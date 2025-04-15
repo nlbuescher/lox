@@ -55,15 +55,15 @@ impl<'a> Parser<'a> {
 
 	fn parse_declaration(&mut self) -> Result<Statement> {
 		if self.advance_if(TokenKind::Class) {
-			return Ok(self.parse_class_declaration()?);
+			return self.parse_class_declaration();
 		}
 
 		if self.advance_if(TokenKind::Fun) {
-			return Ok(self.parse_function_declaration()?);
+			return self.parse_function_declaration();
 		}
 
 		if self.advance_if(TokenKind::Var) {
-			return Ok(self.parse_variable_declaration()?);
+			return self.parse_variable_declaration();
 		}
 
 		self.parse_statement()
@@ -135,30 +135,30 @@ impl<'a> Parser<'a> {
 
 	fn parse_statement(&mut self) -> Result<Statement> {
 		if self.advance_if(TokenKind::LeftBrace) {
-			return Ok(self.parse_block()?);
+			return self.parse_block();
 		}
 
 		if self.advance_if(TokenKind::For) {
-			return Ok(self.parse_for_statement()?);
+			return self.parse_for_statement();
 		}
 
 		if self.advance_if(TokenKind::If) {
-			return Ok(self.parse_if_statement()?);
+			return self.parse_if_statement();
 		}
 
 		if self.advance_if(TokenKind::Print) {
-			return Ok(self.parse_print_statement()?);
+			return self.parse_print_statement();
 		}
 
 		if self.advance_if(TokenKind::Return) {
-			return Ok(self.parse_return_statement()?);
+			return self.parse_return_statement();
 		}
 
 		if self.advance_if(TokenKind::While) {
-			return Ok(self.parse_while_statement()?);
+			return self.parse_while_statement();
 		}
 
-		Ok(self.parse_expression_statement()?)
+		self.parse_expression_statement()
 	}
 
 	fn parse_return_statement(&mut self) -> Result<Statement> {

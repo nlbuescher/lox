@@ -100,10 +100,9 @@ impl Value {
 			Value::Number(_) => TypeKind::Number,
 			Value::String(_) => TypeKind::String,
 			Value::Object(dynamic) => {
-				if let Some(_) = dynamic.borrow().as_callable() {
+				if dynamic.borrow().as_callable().is_some() {
 					TypeKind::Function
-				}
-				else if let Some(_) = dynamic.borrow().as_class() {
+				} else if dynamic.borrow().as_class().is_some() {
 					TypeKind::Class
 				}
 				else if let Some(instance) = dynamic.borrow().as_instance() {

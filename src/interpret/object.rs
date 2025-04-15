@@ -93,8 +93,8 @@ impl FieldMap {
 		self.0.borrow().get(name).cloned()
 	}
 
-	fn set(&self, name: &String, value: Value) {
-		self.0.borrow_mut().insert(name.clone(), value);
+	fn set(&self, name: String, value: Value) {
+		self.0.borrow_mut().insert(name, value);
 	}
 }
 
@@ -211,6 +211,6 @@ impl Get for Instance {
 
 impl Set for Instance {
 	fn set(&mut self, name: &Token, value: Value) {
-		self.fields.set(&name.text, value);
+		self.fields.set(name.text.clone(), value);
 	}
 }

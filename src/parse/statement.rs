@@ -77,7 +77,7 @@ pub enum Statement {
 // Display
 /////////////////////////////////////////////////////////////////////////////
 
-const PAD: &'static str = "";
+const PAD: &str = "";
 
 impl Display for Statement {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
