@@ -10,7 +10,12 @@ pub trait Visitor<T> {
 
 	fn visit_block(&mut self, statements: &[Statement]) -> Result<T, Break>;
 
-	fn visit_class_declaration(&mut self, name: &Token, methods: &[Statement]) -> Result<T, Break>;
+	fn visit_class_declaration(
+		&mut self,
+		name: &Token,
+		super_class: &Option<Expression>,
+		methods: &[Statement],
+	) -> Result<T, Break>;
 
 	fn visit_for(
 		&mut self,
@@ -78,6 +83,8 @@ pub trait Visitor<T> {
 		property: &Token,
 		value: &Expression,
 	) -> Result<T, Error>;
+
+	fn visit_super(&mut self, keyword: &Token, method: &Token) -> Result<T, Error>;
 
 	fn visit_this(&mut self, keyword: &Token) -> Result<T, Error>;
 

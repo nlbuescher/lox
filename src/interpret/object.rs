@@ -8,14 +8,52 @@ use crate::interpret::{Callable, Environment, Function};
 use crate::tokenize::Token;
 use crate::value::Value;
 
+pub fn as_class(object: Rc<RefCell<dyn Object>>) -> Option<Rc<RefCell<Class>>> {
+	if !object.borrow().is_class() {
+		return None;
+	}
+
+	let raw = Rc::into_raw(object) as *const RefCell<Class>;
+	Some(unsafe { Rc::from_raw(raw) })
+}
+
+pub fn as_instance(object: Rc<RefCell<dyn Object>>) -> Option<Rc<RefCell<Instance>>> {
+	if !object.borrow().is_instance() {
+		return None;
+	}
+
+	let raw = Rc::into_raw(object) as *const RefCell<Instance>;
+	Some(unsafe { Rc::from_raw(raw) })
+}
+
 pub trait Object: ToString {
-	fn as_callable(&self) -> Option<&dyn Callable>;
+	fn is_callable(&self) -> bool {
+		false
+	}
 
-	fn as_class(&self) -> Option<&Class>;
+	fn as_callable(&self) -> Option<&dyn Callable> {
+		None
+	}
 
-	fn as_instance(&self) -> Option<&Instance>;
+	fn is_class(&self) -> bool {
+		false
+	}
 
-	fn as_instance_mut(&mut self) -> Option<&mut Instance>;
+	fn as_class(&self) -> Option<&Class> {
+		None
+	}
+
+	fn is_instance(&self) -> bool {
+		false
+	}
+
+	fn as_instance(&self) -> Option<&Instance> {
+		None
+	}
+
+	fn as_instance_mut(&mut self) -> Option<&mut Instance> {
+		None
+	}
 }
 
 pub trait Get {
@@ -29,6 +67,7 @@ pub trait Set {
 #[derive(Clone)]
 pub struct Class {
 	pub name: String,
+	pub super_class: Option<Rc<RefCell<Class>>>,
 	methods: FunctionMap,
 	instance: Option<Instance>,
 }
@@ -52,23 +91,30 @@ struct FieldMap(Rc<RefCell<HashMap<String, Value>>>);
 impl Class {
 	pub fn new(
 		name: String,
+		super_class: Option<Rc<RefCell<Class>>>,
 		class_methods: HashMap<String, Rc<RefCell<Function>>>,
 		instance_methods: HashMap<String, Rc<RefCell<Function>>>,
 	) -> Self {
 		let meta_class = Class {
 			name: format!("{name} class"),
+			super_class: None,
 			methods: FunctionMap(Rc::new(class_methods)),
 			instance: None,
 		};
 		Class {
 			name,
+			super_class,
 			methods: FunctionMap(Rc::new(instance_methods)),
 			instance: Some(Instance::new(meta_class)),
 		}
 	}
 
 	pub fn find_method(&self, name: &String) -> Option<Rc<RefCell<Function>>> {
-		self.methods.get(name).cloned()
+		if let Some(method) = self.methods.get(name) {
+			return Some(method.clone());
+		}
+
+		self.super_class.as_ref().and_then(|super_class| super_class.borrow().find_method(name))
 	}
 }
 
@@ -142,26 +188,26 @@ impl Callable for Class {
 }
 
 impl Object for Class {
+	fn is_callable(&self) -> bool {
+		true
+	}
+
 	fn as_callable(&self) -> Option<&dyn Callable> {
 		Some(self)
+	}
+
+	fn is_class(&self) -> bool {
+		true
 	}
 
 	fn as_class(&self) -> Option<&Class> {
 		Some(self)
 	}
-
-	fn as_instance(&self) -> Option<&Instance> {
-		None
-	}
-
-	fn as_instance_mut(&mut self) -> Option<&mut Instance> {
-		None
-	}
 }
 
 impl Get for Class {
 	fn get(&self, name: &Token) -> Result<Value, Error> {
-		if let Some(ref instance) = self.instance {
+		if let Some(instance) = &self.instance {
 			return instance.get(name);
 		}
 
@@ -171,19 +217,15 @@ impl Get for Class {
 
 impl Set for Class {
 	fn set(&mut self, name: &Token, value: Value) {
-		if let Some(ref mut instance) = self.instance {
+		if let Some(instance) = &mut self.instance {
 			instance.set(name, value);
 		}
 	}
 }
 
 impl Object for Instance {
-	fn as_callable(&self) -> Option<&dyn Callable> {
-		None
-	}
-
-	fn as_class(&self) -> Option<&Class> {
-		None
+	fn is_instance(&self) -> bool {
+		true
 	}
 
 	fn as_instance(&self) -> Option<&Instance> {

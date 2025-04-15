@@ -17,7 +17,7 @@ struct Args {
 pub fn main() -> Result<(), Error> {
 	let args = Args::parse();
 
-	if let Some(ref filename) = args.filename {
+	if let Some(filename) = &args.filename {
 		run_file(filename, args.verbose)
 	}
 	else {

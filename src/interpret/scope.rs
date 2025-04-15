@@ -23,8 +23,23 @@ impl Scope {
 		Scope { parent: None, values: HashMap::new() }
 	}
 
-	pub fn with_parent(parent: &Scope) -> Self {
-		Scope { parent: Some(Box::new(parent.clone())), values: HashMap::new() }
+	pub fn with_parent(parent: Scope) -> Self {
+		Scope { parent: Some(Box::new(parent)), values: HashMap::new() }
+	}
+
+	pub fn parent(&self) -> Option<&Scope> {
+		self.parent.as_deref()
+	}
+
+	pub fn get_local(&self, name: &Token) -> Result<Value, Error> {
+		if let Some(value) = self.values.get(&name.text) {
+			if let Some(value) = value.borrow().deref() {
+				return Ok(value.clone());
+			}
+			return Err(Error::uninitialized_value(name));
+		}
+
+		Err(Error::undefined_value(name))
 	}
 
 	pub fn get(&self, name: &Token) -> Result<Value, Error> {
@@ -35,7 +50,7 @@ impl Scope {
 			return Err(Error::uninitialized_value(name));
 		}
 
-		if let Some(ref parent) = self.parent {
+		if let Some(parent) = &self.parent {
 			return parent.get(name);
 		}
 
@@ -58,7 +73,7 @@ impl Scope {
 			return Ok(());
 		}
 
-		if let Some(ref mut parent) = self.parent {
+		if let Some(parent) = &mut self.parent {
 			return parent.assign(name, value);
 		}
 

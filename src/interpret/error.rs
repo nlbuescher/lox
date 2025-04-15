@@ -21,12 +21,12 @@ impl Error {
 		Error::Lox(Box::new((location.clone(), format!("Expected {expected} but got {actual}"))))
 	}
 
-	pub(super) fn undefined_value(token: &Token) -> Self {
-		Error::Lox(Box::new((token.locate().clone(), format!("{} is undefined", token.text))))
+	pub(super) fn undefined_value(value: &Token) -> Self {
+		Error::Lox(Box::new((value.locate().clone(), format!("{} is undefined", value.text))))
 	}
 
-	pub(super) fn uninitialized_value(token: &Token) -> Self {
-		Error::Lox(Box::new((token.locate().clone(), format!("{} is uninitialized", token.text))))
+	pub(super) fn uninitialized_value(value: &Token) -> Self {
+		Error::Lox(Box::new((value.locate().clone(), format!("{} is uninitialized", value.text))))
 	}
 
 	pub(super) fn not_callable(location: &Location) -> Self {

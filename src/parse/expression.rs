@@ -40,6 +40,10 @@ pub enum Expression {
 		property: Token,
 		value: Box<Expression>,
 	},
+	Super {
+		keyword: Token,
+		method: Token,
+	},
 	This(Token),
 	Unary {
 		operator: Token,
@@ -84,8 +88,8 @@ impl Display for Expression {
 				write!(f, "))")
 			}
 
-			Expression::Get { object, property } => {
-				write!(f, "{object}.{property}", property = property.text)
+			Expression::Get { object, property: Token { text: property, .. } } => {
+				write!(f, "({object}.{property})")
 			}
 
 			Expression::Grouping(expression) => write!(f, "(group {expression})"),
@@ -94,8 +98,12 @@ impl Display for Expression {
 				write!(f, "{literal}", literal = literal.text)
 			}
 
-			Expression::Set { object, property, value } => {
-				write!(f, "{object}.{property} = {value}", property = property.text)
+			Expression::Set { object, property: Token { text: property, .. }, value } => {
+				write!(f, "({object}.{property} = {value})")
+			}
+
+			Expression::Super { method, .. } => {
+				write!(f, "(super.{method})")
 			}
 
 			Expression::This(_) => {
@@ -124,6 +132,7 @@ impl Locate for Expression {
 			Expression::Grouping(expression) => expression.locate(),
 			Expression::Literal(literal) => literal.locate(),
 			Expression::Set { property, .. } => property.locate(),
+			Expression::Super { keyword, .. } => keyword.locate(),
 			Expression::This(keyword) => keyword.locate(),
 			Expression::Unary { operator, .. } => operator.locate(),
 			Expression::Variable(name) => name.locate(),

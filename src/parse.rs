@@ -32,7 +32,10 @@ impl<'a> Parser<'a> {
 		self.advance();
 
 		loop {
-			if self.previous().kind == TokenKind::Semicolon {
+			if matches!(
+				self.previous().kind,
+				TokenKind::Semicolon | TokenKind::RightBrace | TokenKind::EndOfFile
+			) {
 				break;
 			}
 
@@ -72,6 +75,14 @@ impl<'a> Parser<'a> {
 	fn parse_class_declaration(&mut self) -> Result<Statement> {
 		let keyword = self.previous();
 		let name = self.expect(TokenKind::Identifier, "class name")?;
+
+		let super_class = if self.advance_if(TokenKind::Less) {
+			let name = self.expect(TokenKind::Identifier, "super class name after '<'")?;
+			Some(Expression::Variable(name))
+		} else {
+			None
+		};
+
 		let open_brace = self.expect(TokenKind::LeftBrace, "'{' before class body")?;
 
 		let mut methods = Vec::new();
@@ -81,7 +92,14 @@ impl<'a> Parser<'a> {
 
 		let close_brace = self.expect(TokenKind::RightBrace, "'}' after class body")?;
 
-		Ok(Statement::ClassDeclaration { keyword, name, open_brace, methods, close_brace })
+		Ok(Statement::ClassDeclaration {
+			keyword,
+			name,
+			super_class,
+			open_brace,
+			methods,
+			close_brace,
+		})
 	}
 
 	fn parse_function_declaration(&mut self) -> Result<Statement> {
@@ -455,6 +473,13 @@ impl<'a> Parser<'a> {
 			return Ok(Expression::Literal(self.previous()));
 		}
 
+		if self.advance_if(TokenKind::Super) {
+			let keyword = self.previous();
+			self.expect(TokenKind::Dot, "'.' after 'super'")?;
+			let method = self.expect(TokenKind::Identifier, "method name after 'super'")?;
+			return Ok(Expression::Super { keyword, method });
+		}
+
 		if self.advance_if(TokenKind::This) {
 			return Ok(Expression::This(self.previous()));
 		}
@@ -544,10 +569,10 @@ impl<'a> Parser<'a> {
 	/// Gets the previous Token, which is assumed to be present and valid. This function must only
 	/// be called after at least one advance, and only if the previous Token was valid.
 	fn previous(&mut self) -> Token {
-		match self.previous {
+		match &self.previous {
 			None => panic!("Don't call `previous` before parsing something!"),
 			Some(Err(_)) => panic!("Don't call `previous` on an error token!"),
-			Some(Ok(ref token)) => token.clone(),
+			Some(Ok(token)) => token.clone(),
 		}
 	}
 }

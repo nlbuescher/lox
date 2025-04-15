@@ -62,9 +62,9 @@ impl Environment {
 
 	pub fn execute(&mut self, statement: &Statement) -> Result<Value, Error> {
 		self.visit_statement(statement).map_err(|error| match error {
-            Break::Error(error) => error,
-            Break::Return(_) => unreachable!("If you've landed here, the parser allowed a return statement outside of a function")
-        })
+			Break::Error(error) => error,
+			Break::Return(_) => unreachable!("If you've landed here, the parser allowed a return statement outside of a function")
+		})
 	}
 }
 
@@ -73,8 +73,8 @@ impl Visitor<Value> for Environment {
 		match statement {
 			Statement::Block { statements, .. } => self.visit_block(statements),
 
-			Statement::ClassDeclaration { name, methods, .. } => {
-				self.visit_class_declaration(name, methods)
+			Statement::ClassDeclaration { name, super_class, methods, .. } => {
+				self.visit_class_declaration(name, super_class, methods)
 			}
 
 			Statement::Expression { expression } => Ok(self.visit_expression(expression)?),
@@ -108,7 +108,7 @@ impl Visitor<Value> for Environment {
 	}
 
 	fn visit_block(&mut self, statements: &[Statement]) -> Result<Value, Break> {
-		let scope = Scope::with_parent(self.scope.borrow().deref());
+		let scope = Scope::with_parent(self.scope.borrow().clone());
 
 		self.run_in_scope(scope, |environment| {
 			statements
@@ -120,35 +120,50 @@ impl Visitor<Value> for Environment {
 	fn visit_class_declaration(
 		&mut self,
 		name: &Token,
+		super_class_expression: &Option<Expression>,
 		methods: &[Statement],
 	) -> Result<Value, Break> {
+		let super_class = super_class_expression
+			.as_ref()
+			.map(|expression| self.visit_expression(expression)?.as_class(expression.locate()))
+			.transpose()?;
+
 		let mut class_methods = HashMap::new();
 		let mut instance_methods = HashMap::new();
 
-		for method in methods {
-			if let Statement::FunctionDeclaration {
-				keyword,
-				name: Token { text: name, .. },
-				parameters,
-				body,
-			} = method
-			{
-				let function = Rc::new(RefCell::new(Function::new(
-					Some(name.clone()),
-					name == "init",
-					self.scope.borrow().clone(),
-					parameters.clone(),
-					body.clone(),
-				)));
+		{
+			let mut scope = Scope::with_parent(self.scope.borrow().clone());
 
-				if matches!(keyword, Some(ref keyword) if keyword.kind == TokenKind::Class) {
-					class_methods.insert(name.clone(), function);
-				} else {
-					instance_methods.insert(name.clone(), function);
-				}
+			if let Some(super_class) = &super_class {
+				scope.define("super", Some(Value::Object(super_class.clone())));
 			}
-			else {
-				unreachable!("Found something other than a function declaration in a class body!");
+
+			for method in methods {
+				if let Statement::FunctionDeclaration {
+					keyword,
+					name: Token { text: name, .. },
+					parameters,
+					body,
+				} = method
+				{
+					let function = Rc::new(RefCell::new(Function::new(
+						Some(name.clone()),
+						name == "init",
+						scope.clone(),
+						parameters.clone(),
+						body.clone(),
+					)));
+
+					if matches!(&keyword, Some(keyword) if keyword.kind == TokenKind::Class) {
+						class_methods.insert(name.clone(), function);
+					} else {
+						instance_methods.insert(name.clone(), function);
+					}
+				} else {
+					unreachable!(
+						"Found something other than a function declaration in a class body!"
+					);
+				}
 			}
 		}
 
@@ -156,6 +171,7 @@ impl Visitor<Value> for Environment {
 			&name.text,
 			Some(Value::Object(Rc::new(RefCell::new(Class::new(
 				name.text.clone(),
+				super_class,
 				class_methods,
 				instance_methods,
 			))))),
@@ -171,7 +187,7 @@ impl Visitor<Value> for Environment {
 		increment: Option<&Statement>,
 		body: &Statement,
 	) -> Result<Value, Break> {
-		let scope = Scope::with_parent(self.scope.borrow().deref());
+		let scope = Scope::with_parent(self.scope.borrow().clone());
 
 		self.run_in_scope(scope, |environment| {
 			if let Some(initializer) = initializer {
@@ -287,6 +303,8 @@ impl Visitor<Value> for Environment {
 			Expression::Literal(literal) => self.visit_literal(literal),
 
 			Expression::Set { object, property, value } => self.visit_set(object, property, value),
+
+			Expression::Super { keyword, method } => self.visit_super(keyword, method),
 
 			Expression::This(keyword) => self.visit_this(keyword),
 
@@ -409,26 +427,21 @@ impl Visitor<Value> for Environment {
 			.map(|argument| self.visit_expression(argument))
 			.collect::<Result<Vec<Value>, Error>>()?;
 
-		if let Value::Object(dynamic) = callee {
-			if let Some(callable) = dynamic.borrow().as_callable() {
-				if arguments.len() == callable.arity() {
-					Ok(callable.call(self, &arguments)?)
-				}
-				else {
-					Err(Error::unexpected_number_of_arguments(
+		if let Value::Object(object) = callee {
+			if let Some(callable) = object.borrow().as_callable() {
+				if arguments.len() != callable.arity() {
+					return Err(Error::unexpected_number_of_arguments(
 						open_paren.locate(),
 						callable.arity(),
 						arguments.len(),
-					))
+					));
 				}
-			}
-			else {
-				Err(Error::not_callable(open_paren.locate()))
+
+				return callable.call(self, &arguments);
 			}
 		}
-		else {
-			Err(Error::not_callable(open_paren.locate()))
-		}
+
+		Err(Error::not_callable(open_paren.locate()))
 	}
 
 	fn visit_function(
@@ -448,12 +461,12 @@ impl Visitor<Value> for Environment {
 	fn visit_get(&mut self, object: &Expression, property: &Token) -> Result<Value, Error> {
 		let object = self.visit_expression(object)?;
 
-		if let Value::Object(dynamic) = &object {
-			if let Some(instance) = dynamic.borrow().as_instance() {
+		if let Value::Object(object) = &object {
+			if let Some(instance) = object.borrow().as_instance() {
 				return instance.get(property);
 			}
 
-			if let Some(class) = dynamic.borrow().as_class() {
+			if let Some(class) = object.borrow().as_class() {
 				return class.get(property);
 			}
 		}
@@ -488,8 +501,8 @@ impl Visitor<Value> for Environment {
 	) -> Result<Value, Error> {
 		let object = self.visit_expression(object)?;
 
-		if let Value::Object(dynamic) = object {
-			if let Some(instance) = dynamic.borrow_mut().as_instance_mut() {
+		if let Value::Object(object) = object {
+			if let Some(instance) = object.borrow_mut().as_instance_mut() {
 				let value = self.visit_expression(value)?;
 				instance.set(property, value.clone());
 				return Ok(value);
@@ -497,6 +510,21 @@ impl Visitor<Value> for Environment {
 		}
 
 		Err(Error::not_instance(property.locate()))
+	}
+
+	fn visit_super(&mut self, keyword: &Token, method: &Token) -> Result<Value, Error> {
+		let super_class = self.scope.borrow().get(keyword)?.as_class(keyword.locate())?;
+
+		let instance = self
+			.visit_this(&Token::with_text(keyword.locate().clone(), TokenKind::This, "this"))?
+			.as_instance(keyword.locate())?;
+
+		let function = super_class.borrow().find_method(&method.text);
+		if let Some(function) = function {
+			Ok(Value::Object(function.borrow().bind(instance.borrow().clone())))
+		} else {
+			Err(Error::undefined_value(method))
+		}
 	}
 
 	fn visit_this(&mut self, keyword: &Token) -> Result<Value, Error> {

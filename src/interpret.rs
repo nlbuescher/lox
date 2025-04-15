@@ -6,8 +6,10 @@ mod object;
 mod scope;
 mod visit;
 
+use std::cell::RefCell;
 use std::fmt::{Debug, Display, Formatter};
 use std::io::{stdin, BufRead, Write};
+use std::rc::Rc;
 
 pub use callable::Callable;
 pub use environment::Environment;
@@ -16,6 +18,7 @@ pub use object::{Class, Instance, Object};
 pub use scope::Scope;
 
 use crate::error::Error;
+use crate::interpret::object::{as_class, as_instance};
 use crate::location::Location;
 use crate::parse::Parser;
 use crate::tokenize::Tokens;
@@ -99,17 +102,18 @@ impl Value {
 			Value::Bool(_) => TypeKind::Bool,
 			Value::Number(_) => TypeKind::Number,
 			Value::String(_) => TypeKind::String,
-			Value::Object(dynamic) => {
-				if dynamic.borrow().as_callable().is_some() {
-					TypeKind::Function
-				} else if dynamic.borrow().as_class().is_some() {
+			Value::Object(object) => {
+				if object.borrow().is_class() {
 					TypeKind::Class
-				}
-				else if let Some(instance) = dynamic.borrow().as_instance() {
+				} else if let Some(instance) = object.borrow().as_instance() {
 					TypeKind::Instance(instance.class.name.clone())
 				}
+				// order matters because a class is a callable
+				else if object.borrow().is_callable() {
+					TypeKind::Function
+				}
 				else {
-					unreachable!("Unknown dynamic type")
+					unreachable!("Unknown object type")
 				}
 			}
 		}
@@ -137,6 +141,29 @@ impl Value {
 			Value::String(s) => Ok(s),
 			_ => Err(Error::type_error(location, TypeKind::String, self.type_kind())),
 		}
+	}
+
+	fn as_object(&self) -> Option<Rc<RefCell<dyn Object>>> {
+		match self {
+			Value::Object(object) => Some(object.clone()),
+			_ => None,
+		}
+	}
+
+	fn as_class(&self, location: &Location) -> Result<Rc<RefCell<Class>>, Error> {
+		self.as_object().and_then(as_class).ok_or(Error::type_error(
+			location,
+			TypeKind::Class,
+			self.type_kind(),
+		))
+	}
+
+	fn as_instance(&self, location: &Location) -> Result<Rc<RefCell<Instance>>, Error> {
+		self.as_object().and_then(as_instance).ok_or(Error::type_error(
+			location,
+			TypeKind::Instance(String::default()),
+			self.type_kind(),
+		))
 	}
 }
 
@@ -277,7 +304,6 @@ var cake = Cake();
 cake.flavor = \"German chocolate\";
 cake.taste();
 ";
-
 		let expected = "The German chocolate cake is delicious!\n";
 
 		let actual = capture_run(input);
@@ -362,6 +388,109 @@ class Math {
 print Math.square(7);
 ";
 		let expected = "49\n";
+
+		let actual = capture_run(input);
+
+		assert_eq!(expected, actual);
+	}
+
+	#[test]
+	fn inheritance() {
+		let input = "\
+class Doughnut {
+	eat() {
+		print \"Yum!\";
+	}
+}
+
+class BostonCream < Doughnut {}
+
+BostonCream().eat();
+";
+		let expected = "Yum!\n";
+
+		let actual = capture_run(input);
+
+		assert_eq!(expected, actual);
+	}
+
+	#[test]
+	fn inherit_self() {
+		let input = "\
+class Oops < Oops {}
+";
+		let expected = "[  1:14 ] Oops is undefined\n";
+
+		let actual = capture_run(input);
+
+		assert_eq!(expected, actual);
+	}
+
+	#[test]
+	fn inherit_non_class() {
+		let input = "\
+var NotAClass = \"definitely not a class\";
+
+class SubClass < NotAClass {}
+";
+		let expected = "[  3:18 ] Expected Class but got String\n";
+
+		let actual = capture_run(input);
+
+		assert_eq!(expected, actual);
+	}
+
+	#[test]
+	fn inheritance_explicit_super() {
+		let input = "\
+class Doughnut {
+	eat() {
+		print \"Yum!\";
+	}
+}
+
+class BostonCream < Doughnut {
+	eat() {
+		super.eat();
+		print \"Boston!\";
+	}
+}
+
+BostonCream().eat();
+";
+		let expected = "Yum!\nBoston!\n";
+
+		let actual = capture_run(input);
+
+		assert_eq!(expected, actual);
+	}
+
+	#[test]
+	fn inheritance_explicit_super_three_level() {
+		let input = "\
+class Doughnut {
+	eat() {
+		print \"Yum!\";
+	}
+}
+
+class Middle < Doughnut {
+	eat() {
+		super.eat();
+		print \"Middle\";
+	}
+}
+
+class BostonCream < Middle {
+	eat() {
+		super.eat();
+		print \"Boston!\";
+	}
+}
+
+BostonCream().eat();
+";
+		let expected = "Yum!\nMiddle\nBoston!\n";
 
 		let actual = capture_run(input);
 

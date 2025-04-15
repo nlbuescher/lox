@@ -19,6 +19,7 @@ pub enum Statement {
 	ClassDeclaration {
 		keyword: Token,
 		name: Token,
+		super_class: Option<Expression>,
 		open_brace: Token,
 		methods: Vec<Statement>,
 		close_brace: Token,
@@ -187,12 +188,8 @@ impl Display for Statement {
 					write!(f, "{then_branch:width$}")?;
 				}
 
-				if let Some((keyword, else_block)) = &else_branch {
+				if let Some((_, else_block)) = &else_branch {
 					writeln!(f)?;
-
-					if f.alternate() {
-						write!(f, "{location}", location = keyword.locate())?;
-					}
 
 					writeln!(f, "{PAD:width$}else")?;
 
@@ -206,18 +203,11 @@ impl Display for Statement {
 				Ok(())
 			}
 
-			Statement::Print { keyword, expression } => {
-				if f.alternate() {
-					write!(f, "{location} ", location = keyword.locate())?;
-				}
+			Statement::Print { expression, .. } => {
 				write!(f, "{PAD:width$}(print {expression})")
 			}
 
-			Statement::Return { keyword, expression } => {
-				if f.alternate() {
-					write!(f, "{location} ", location = keyword.locate())?;
-				}
-
+			Statement::Return { expression, .. } => {
 				write!(f, "{PAD:width$}")?;
 
 				if let Some(expression) = &expression {
@@ -227,11 +217,7 @@ impl Display for Statement {
 				}
 			}
 
-			Statement::VariableDeclaration { keyword, name, initializer } => {
-				if f.alternate() {
-					write!(f, "{location} ", location = keyword.locate())?;
-				}
-
+			Statement::VariableDeclaration { name, initializer, .. } => {
 				write!(f, "{PAD:width$}")?;
 
 				let name = &name.text;
@@ -244,11 +230,7 @@ impl Display for Statement {
 				}
 			}
 
-			Statement::While { keyword, condition, body } => {
-				if f.alternate() {
-					write!(f, "{location} ", location = keyword.locate())?;
-				}
-
+			Statement::While { condition, body, .. } => {
 				writeln!(f, "{PAD:width$}while {condition}")?;
 
 				if f.alternate() {

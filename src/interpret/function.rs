@@ -7,7 +7,7 @@ use crate::error::Error;
 use crate::interpret::error::Break;
 use crate::interpret::object::Object;
 use crate::interpret::visit::Visitor;
-use crate::interpret::{Callable, Class, Environment, Instance, Scope};
+use crate::interpret::{Callable, Environment, Instance, Scope};
 use crate::location::Locate;
 use crate::parse::Statement;
 use crate::tokenize::{Token, TokenKind};
@@ -41,7 +41,7 @@ impl Function {
 	}
 
 	pub fn bind(&self, instance: Instance) -> Rc<RefCell<Function>> {
-		let mut scope = Scope::with_parent(&self.scope);
+		let mut scope = Scope::with_parent(self.scope.clone());
 		scope.define("this", Some(Value::Object(Rc::new(RefCell::new(instance)))));
 		Rc::new(RefCell::new(Function::new(
 			self.name.clone(),
@@ -64,7 +64,7 @@ impl NativeFunction {
 
 impl Display for Function {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-		if let Some(ref name) = self.name {
+		if let Some(name) = &self.name {
 			write!(f, "<fn {name}")
 		}
 		else {
@@ -85,7 +85,7 @@ impl Callable for Function {
 	}
 
 	fn call(&self, env: &mut Environment, args: &[Value]) -> Result<Value, Error> {
-		let scope = Scope::with_parent(&self.scope);
+		let scope = Scope::with_parent(self.scope.clone());
 
 		let result = env.run_in_scope(scope, |environment| {
 			for (name, argument) in self.parameters.iter().zip(args) {
@@ -128,37 +128,21 @@ impl Callable for NativeFunction {
 }
 
 impl Object for Function {
+	fn is_callable(&self) -> bool {
+		true
+	}
+
 	fn as_callable(&self) -> Option<&dyn Callable> {
 		Some(self)
-	}
-
-	fn as_class(&self) -> Option<&Class> {
-		None
-	}
-
-	fn as_instance(&self) -> Option<&Instance> {
-		None
-	}
-
-	fn as_instance_mut(&mut self) -> Option<&mut Instance> {
-		None
 	}
 }
 
 impl Object for NativeFunction {
+	fn is_callable(&self) -> bool {
+		true
+	}
+
 	fn as_callable(&self) -> Option<&dyn Callable> {
 		Some(self)
-	}
-
-	fn as_class(&self) -> Option<&Class> {
-		None
-	}
-
-	fn as_instance(&self) -> Option<&Instance> {
-		None
-	}
-
-	fn as_instance_mut(&mut self) -> Option<&mut Instance> {
-		None
 	}
 }
