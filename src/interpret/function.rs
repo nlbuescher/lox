@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::fmt::{Display, Formatter};
-use std::ops::Deref;
 use std::rc::Rc;
 
 use crate::error::Error;
@@ -9,7 +8,7 @@ use crate::interpret::object::Object;
 use crate::interpret::visit::Visitor;
 use crate::interpret::{Callable, Environment, Instance, Scope};
 use crate::location::Locate;
-use crate::parse::Statement;
+use crate::parse::BlockStatement;
 use crate::tokenize::{Token, TokenKind};
 use crate::value::Value;
 
@@ -19,7 +18,7 @@ pub struct Function {
 	is_initializer: bool,
 	scope: Scope,
 	parameters: Vec<Token>,
-	pub body: Rc<Statement>,
+	pub body: Rc<BlockStatement>,
 }
 
 pub struct NativeFunction {
@@ -35,7 +34,7 @@ impl Function {
 		is_initializer: bool,
 		scope: Scope,
 		parameters: Vec<Token>,
-		body: Rc<Statement>,
+		body: Rc<BlockStatement>,
 	) -> Self {
 		Function { name, is_initializer, scope, parameters, body }
 	}
@@ -92,7 +91,7 @@ impl Callable for Function {
 				environment.scope.borrow_mut().define(&name.text, Some(argument.clone()));
 			}
 
-			environment.visit_statement(self.body.deref())
+			environment.visit_block(&self.body.statements)
 		});
 
 		if let Err(Break::Error(error)) = result {
@@ -123,7 +122,7 @@ impl Callable for NativeFunction {
 	}
 
 	fn call(&self, env: &mut Environment, args: &[Value]) -> Result<Value, Error> {
-		self.body.deref()(env, args)
+		(&self.body)(env, args)
 	}
 }
 

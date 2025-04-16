@@ -1,7 +1,9 @@
 use std::rc::Rc;
 
 use crate::interpret::error::Break;
-use crate::parse::{Expression, Statement};
+use crate::parse::{
+	BlockStatement, Expression, ExpressionStatement, FunctionDeclarationStatement, Statement,
+};
 use crate::tokenize::Token;
 use crate::Error;
 
@@ -14,28 +16,28 @@ pub trait Visitor<T> {
 		&mut self,
 		name: &Token,
 		super_class: &Option<Expression>,
-		methods: &[Statement],
+		methods: &[FunctionDeclarationStatement],
 	) -> Result<T, Break>;
 
 	fn visit_for(
 		&mut self,
 		initializer: Option<&Statement>,
 		condition: Option<&Expression>,
-		increment: Option<&Statement>,
-		body: &Statement,
+		increment: Option<&ExpressionStatement>,
+		body: &BlockStatement,
 	) -> Result<T, Break>;
 
 	fn visit_function_declaration(
 		&mut self,
 		name: &Token,
 		parameters: &[Token],
-		body: &Rc<Statement>,
+		body: &Rc<BlockStatement>,
 	) -> Result<T, Break>;
 
 	fn visit_if(
 		&mut self,
 		condition: &Expression,
-		then_branch: &Statement,
+		then_branch: &BlockStatement,
 		else_branch: Option<&Statement>,
 	) -> Result<T, Break>;
 
@@ -49,7 +51,7 @@ pub trait Visitor<T> {
 		initializer: Option<&Expression>,
 	) -> Result<T, Break>;
 
-	fn visit_while(&mut self, condition: &Expression, body: &Statement) -> Result<T, Break>;
+	fn visit_while(&mut self, condition: &Expression, body: &BlockStatement) -> Result<T, Break>;
 
 	fn visit_expression(&mut self, expression: &Expression) -> Result<T, Error>;
 
@@ -69,7 +71,11 @@ pub trait Visitor<T> {
 		arguments: &[Expression],
 	) -> Result<T, Error>;
 
-	fn visit_function(&mut self, parameters: &[Token], body: &Rc<Statement>) -> Result<T, Error>;
+	fn visit_function(
+		&mut self,
+		parameters: &[Token],
+		body: &Rc<BlockStatement>,
+	) -> Result<T, Error>;
 
 	fn visit_get(&mut self, object: &Expression, property: &Token) -> Result<T, Error>;
 

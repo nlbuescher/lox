@@ -11,7 +11,11 @@ use crate::interpret::object::{Get, Set};
 use crate::interpret::visit::Visitor;
 use crate::interpret::{Class, Scope, TypeKind};
 use crate::location::Locate;
-use crate::parse::{Expression, Statement};
+use crate::parse::{
+	BlockStatement, ClassDeclarationStatement, Expression, ExpressionStatement, ForStatement,
+	FunctionDeclarationStatement, IfStatement, PrintStatement, ReturnStatement, Statement,
+	VariableDeclarationStatement, WhileStatement,
+};
 use crate::tokenize::{Token, TokenKind};
 use crate::value::Value;
 
@@ -71,39 +75,52 @@ impl Environment {
 impl Visitor<Value> for Environment {
 	fn visit_statement(&mut self, statement: &Statement) -> Result<Value, Break> {
 		match statement {
-			Statement::Block { statements, .. } => self.visit_block(statements),
+			Statement::Block(BlockStatement { statements, .. }) => self.visit_block(statements),
 
-			Statement::ClassDeclaration { name, super_class, methods, .. } => {
-				self.visit_class_declaration(name, super_class, methods)
+			Statement::ClassDeclaration(ClassDeclarationStatement {
+				                            name,
+				                            super_class,
+				                            methods,
+				                            ..
+			                            }) => self.visit_class_declaration(name, super_class, methods),
+
+			Statement::Expression(ExpressionStatement { expression }) => {
+				Ok(self.visit_expression(expression)?)
 			}
 
-			Statement::Expression { expression } => Ok(self.visit_expression(expression)?),
+			Statement::For(ForStatement { initializer, condition, increment, body, .. }) => self
+				.visit_for(
+					initializer.as_deref(),
+					condition.as_deref(),
+					increment.as_deref(),
+					body,
+				),
 
-			Statement::For { initializer, condition, increment, body, .. } => self.visit_for(
-				initializer.as_deref(),
-				condition.as_deref(),
-				increment.as_deref(),
-				body,
-			),
+			Statement::FunctionDeclaration(FunctionDeclarationStatement {
+				                               name,
+				                               parameters,
+				                               body,
+				                               ..
+			                               }) => self.visit_function_declaration(name, parameters, body),
 
-			Statement::FunctionDeclaration { name, parameters, body, .. } => {
-				self.visit_function_declaration(name, parameters, body)
+			Statement::If(IfStatement { condition, then_branch, else_branch, .. }) => self
+				.visit_if(condition, then_branch, else_branch.as_ref().map(|(_, it)| it.deref())),
+
+			Statement::Print(PrintStatement { expression, .. }) => self.visit_print(expression),
+
+			Statement::Return(ReturnStatement { expression, .. }) => {
+				self.visit_return(expression.as_deref())
 			}
 
-			Statement::If { condition, then_branch, else_branch, .. } => {
-				let else_branch = else_branch.as_ref().map(|(_, it)| it.deref());
-				self.visit_if(condition, then_branch, else_branch)
+			Statement::VariableDeclaration(VariableDeclarationStatement {
+				                               name,
+				                               initializer,
+				                               ..
+			                               }) => self.visit_variable_declaration(name, initializer.as_deref()),
+
+			Statement::While(WhileStatement { condition, body, .. }) => {
+				self.visit_while(condition, body)
 			}
-
-			Statement::Print { expression, .. } => self.visit_print(expression),
-
-			Statement::Return { expression, .. } => self.visit_return(expression.as_deref()),
-
-			Statement::VariableDeclaration { name, initializer, .. } => {
-				self.visit_variable_declaration(name, initializer.as_deref())
-			}
-
-			Statement::While { condition, body, .. } => self.visit_while(condition, body),
 		}
 	}
 
@@ -120,10 +137,10 @@ impl Visitor<Value> for Environment {
 	fn visit_class_declaration(
 		&mut self,
 		name: &Token,
-		super_class_expression: &Option<Expression>,
-		methods: &[Statement],
+		super_class: &Option<Expression>,
+		methods: &[FunctionDeclarationStatement],
 	) -> Result<Value, Break> {
-		let super_class = super_class_expression
+		let super_class = super_class
 			.as_ref()
 			.map(|expression| self.visit_expression(expression)?.as_class(expression.locate()))
 			.transpose()?;
@@ -139,30 +156,25 @@ impl Visitor<Value> for Environment {
 			}
 
 			for method in methods {
-				if let Statement::FunctionDeclaration {
+				let FunctionDeclarationStatement {
 					keyword,
 					name: Token { text: name, .. },
 					parameters,
 					body,
-				} = method
-				{
-					let function = Rc::new(RefCell::new(Function::new(
-						Some(name.clone()),
-						name == "init",
-						scope.clone(),
-						parameters.clone(),
-						body.clone(),
-					)));
+				} = method;
 
-					if matches!(&keyword, Some(keyword) if keyword.kind == TokenKind::Class) {
-						class_methods.insert(name.clone(), function);
-					} else {
-						instance_methods.insert(name.clone(), function);
-					}
+				let function = Rc::new(RefCell::new(Function::new(
+					Some(name.clone()),
+					name == "init",
+					scope.clone(),
+					parameters.clone(),
+					body.clone(),
+				)));
+
+				if matches!(&keyword, Some(keyword) if keyword.kind == TokenKind::Class) {
+					class_methods.insert(name.clone(), function);
 				} else {
-					unreachable!(
-						"Found something other than a function declaration in a class body!"
-					);
+					instance_methods.insert(name.clone(), function);
 				}
 			}
 		}
@@ -184,8 +196,8 @@ impl Visitor<Value> for Environment {
 		&mut self,
 		initializer: Option<&Statement>,
 		condition: Option<&Expression>,
-		increment: Option<&Statement>,
-		body: &Statement,
+		increment: Option<&ExpressionStatement>,
+		body: &BlockStatement,
 	) -> Result<Value, Break> {
 		let scope = Scope::with_parent(self.scope.borrow().clone());
 
@@ -195,16 +207,16 @@ impl Visitor<Value> for Environment {
 			}
 
 			while condition
-				.as_ref()
+				.as_deref()
 				.map(|condition| environment.visit_expression(condition))
 				.transpose()?
 				.unwrap_or_else(|| Value::Bool(true))
 				.is_truthy()
 			{
-				environment.visit_statement(body)?;
+				environment.visit_block(&body.statements)?;
 
 				if let Some(increment) = increment {
-					environment.visit_statement(increment)?;
+					environment.visit_expression(&increment.expression)?;
 				}
 			}
 
@@ -216,7 +228,7 @@ impl Visitor<Value> for Environment {
 		&mut self,
 		name: &Token,
 		parameters: &[Token],
-		body: &Rc<Statement>,
+		body: &Rc<BlockStatement>,
 	) -> Result<Value, Break> {
 		let function = self.visit_function(parameters, body)?;
 
@@ -228,13 +240,13 @@ impl Visitor<Value> for Environment {
 	fn visit_if(
 		&mut self,
 		condition: &Expression,
-		then_branch: &Statement,
+		then_branch: &BlockStatement,
 		else_branch: Option<&Statement>,
 	) -> Result<Value, Break> {
 		let condition = self.visit_expression(condition)?;
 
 		if condition.is_truthy() {
-			self.visit_statement(then_branch)?;
+			self.visit_block(&then_branch.statements)?;
 		}
 		else if let Some(else_branch) = else_branch {
 			self.visit_statement(else_branch)?;
@@ -274,9 +286,13 @@ impl Visitor<Value> for Environment {
 		Ok(Value::Nil)
 	}
 
-	fn visit_while(&mut self, condition: &Expression, body: &Statement) -> Result<Value, Break> {
+	fn visit_while(
+		&mut self,
+		condition: &Expression,
+		body: &BlockStatement,
+	) -> Result<Value, Break> {
 		while self.visit_expression(condition)?.is_truthy() {
-			self.visit_statement(body)?;
+			self.visit_block(&body.statements)?;
 		}
 
 		Ok(Value::Nil)
@@ -447,7 +463,7 @@ impl Visitor<Value> for Environment {
 	fn visit_function(
 		&mut self,
 		parameters: &[Token],
-		body: &Rc<Statement>,
+		body: &Rc<BlockStatement>,
 	) -> Result<Value, Error> {
 		Ok(Value::Object(Rc::new(RefCell::new(Function::new(
 			None,
