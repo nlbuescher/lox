@@ -5,7 +5,11 @@ mod statement;
 use std::iter::Peekable;
 use std::rc::Rc;
 
-pub use expression::Expression;
+pub use expression::{
+	AssignmentExpression, BinaryExpression, CallExpression, Expression, FunctionExpression,
+	GetExpression, GroupingExpression, LiteralExpression, SetExpression, SuperExpression,
+	ThisExpression, UnaryExpression, VariableExpression,
+};
 pub use statement::{
 	BlockStatement, ClassDeclarationStatement, ExpressionStatement, ForStatement,
 	FunctionDeclarationStatement, IfStatement, PrintStatement, ReturnStatement, Statement,
@@ -82,7 +86,7 @@ impl<'a> Parser<'a> {
 
 		let super_class = if self.advance_if(TokenKind::Less) {
 			let name = self.expect(TokenKind::Identifier, "super class name after '<'")?;
-			Some(Expression::Variable(name))
+			Some(VariableExpression(name))
 		} else {
 			None
 		};
@@ -313,12 +317,15 @@ impl<'a> Parser<'a> {
 			let equals = self.previous();
 			let value = Box::new(self.parse_assignment()?);
 
-			if let Expression::Variable(name) = expression {
-				return Ok(Expression::Assignment { name, expression: value });
+			if let Expression::Variable(VariableExpression(name)) = expression {
+				return Ok(Expression::Assignment(AssignmentExpression {
+					name,
+					expression: value,
+				}));
 			}
 
-			if let Expression::Get { object, property } = expression {
-				return Ok(Expression::Set { object, property, value });
+			if let Expression::Get(GetExpression { object, property }) = expression {
+				return Ok(Expression::Set(SetExpression { object, property, value }));
 			}
 
 			return Err(Error::invalid_assignment(equals.locate().clone()));
@@ -331,11 +338,11 @@ impl<'a> Parser<'a> {
 		let mut expression = self.parse_and()?;
 
 		while self.advance_if(TokenKind::Or) {
-			expression = Expression::Binary {
+			expression = Expression::Binary(BinaryExpression {
 				left: Box::new(expression),
 				operator: self.previous(),
 				right: Box::new(self.parse_and()?),
-			}
+			})
 		}
 
 		Ok(expression)
@@ -345,11 +352,11 @@ impl<'a> Parser<'a> {
 		let mut expression = self.parse_equality()?;
 
 		while self.advance_if(TokenKind::And) {
-			expression = Expression::Binary {
+			expression = Expression::Binary(BinaryExpression {
 				left: Box::new(expression),
 				operator: self.previous(),
 				right: Box::new(self.parse_equality()?),
-			}
+			})
 		}
 
 		Ok(expression)
@@ -359,11 +366,11 @@ impl<'a> Parser<'a> {
 		let mut expression = self.parse_comparison()?;
 
 		while self.advance_if_any(&[TokenKind::BangEqual, TokenKind::EqualEqual]) {
-			expression = Expression::Binary {
+			expression = Expression::Binary(BinaryExpression {
 				left: Box::new(expression),
 				operator: self.previous(),
 				right: Box::new(self.parse_comparison()?),
-			}
+			})
 		}
 
 		Ok(expression)
@@ -378,11 +385,11 @@ impl<'a> Parser<'a> {
 			TokenKind::Less,
 			TokenKind::LessEqual,
 		]) {
-			expression = Expression::Binary {
+			expression = Expression::Binary(BinaryExpression {
 				left: Box::new(expression),
 				operator: self.previous(),
 				right: Box::new(self.parse_term()?),
-			}
+			})
 		}
 
 		Ok(expression)
@@ -392,11 +399,11 @@ impl<'a> Parser<'a> {
 		let mut expression = self.parse_factor()?;
 
 		while self.advance_if_any(&[TokenKind::Minus, TokenKind::Plus]) {
-			expression = Expression::Binary {
+			expression = Expression::Binary(BinaryExpression {
 				left: Box::new(expression),
 				operator: self.previous(),
 				right: Box::new(self.parse_factor()?),
-			}
+			})
 		}
 
 		Ok(expression)
@@ -406,11 +413,11 @@ impl<'a> Parser<'a> {
 		let mut expression = self.parse_unary()?;
 
 		while self.advance_if_any(&[TokenKind::Slash, TokenKind::Star]) {
-			expression = Expression::Binary {
+			expression = Expression::Binary(BinaryExpression {
 				left: Box::new(expression),
 				operator: self.previous(),
 				right: Box::new(self.parse_unary()?),
-			}
+			})
 		}
 
 		Ok(expression)
@@ -418,10 +425,10 @@ impl<'a> Parser<'a> {
 
 	fn parse_unary(&mut self) -> Result<Expression> {
 		if self.advance_if_any(&[TokenKind::Bang, TokenKind::Minus]) {
-			Ok(Expression::Unary {
+			Ok(Expression::Unary(UnaryExpression {
 				operator: self.previous(),
 				expression: Box::new(self.parse_unary()?),
-			})
+			}))
 		}
 		else {
 			self.parse_call()
@@ -447,16 +454,17 @@ impl<'a> Parser<'a> {
 
 				let close_paren = self.expect(TokenKind::RightParen, "')' after arguments")?;
 
-				expression = Expression::Call {
+				expression = Expression::Call(CallExpression {
 					callee: Box::new(expression),
 					open_paren,
 					arguments,
 					close_paren,
-				};
+				});
 			}
 			else if self.advance_if(TokenKind::Dot) {
 				let property = self.expect(TokenKind::Identifier, "property name after '.'")?;
-				expression = Expression::Get { object: Box::new(expression), property };
+				expression =
+					Expression::Get(GetExpression { object: Box::new(expression), property });
 			}
 			else {
 				break;
@@ -474,28 +482,28 @@ impl<'a> Parser<'a> {
 			TokenKind::Number,
 			TokenKind::String,
 		]) {
-			return Ok(Expression::Literal(self.previous()));
+			return Ok(Expression::Literal(LiteralExpression(self.previous())));
 		}
 
 		if self.advance_if(TokenKind::Super) {
 			let keyword = self.previous();
 			self.expect(TokenKind::Dot, "'.' after 'super'")?;
 			let method = self.expect(TokenKind::Identifier, "method name after 'super'")?;
-			return Ok(Expression::Super { keyword, method });
+			return Ok(Expression::Super(SuperExpression { keyword, method }));
 		}
 
 		if self.advance_if(TokenKind::This) {
-			return Ok(Expression::This(self.previous()));
+			return Ok(Expression::This(ThisExpression(self.previous())));
 		}
 
 		if self.advance_if(TokenKind::LeftParen) {
 			let expression = self.parse_expression()?;
 			self.expect(TokenKind::RightParen, "')'")?;
-			return Ok(Expression::Grouping(Box::new(expression)));
+			return Ok(Expression::Grouping(GroupingExpression(Box::new(expression))));
 		}
 
 		if self.advance_if(TokenKind::Identifier) {
-			return Ok(Expression::Variable(self.previous()));
+			return Ok(Expression::Variable(VariableExpression(self.previous())));
 		}
 
 		if self.advance_if(TokenKind::Fun) {
@@ -518,7 +526,13 @@ impl<'a> Parser<'a> {
 
 			let body = Rc::new(self.parse_block()?);
 
-			return Ok(Expression::Function { keyword, open_paren, parameters, close_paren, body });
+			return Ok(Expression::Function(FunctionExpression {
+				keyword,
+				open_paren,
+				parameters,
+				close_paren,
+				body,
+			}));
 		}
 
 		Err(Error::unexpected_token("expression", self.peek()))

@@ -3,6 +3,7 @@ use std::rc::Rc;
 use crate::interpret::error::Break;
 use crate::parse::{
 	BlockStatement, Expression, ExpressionStatement, FunctionDeclarationStatement, Statement,
+	VariableExpression,
 };
 use crate::tokenize::Token;
 use crate::Error;
@@ -15,7 +16,7 @@ pub trait Visitor<T> {
 	fn visit_class_declaration(
 		&mut self,
 		name: &Token,
-		super_class: &Option<Expression>,
+		super_class: &Option<VariableExpression>,
 		methods: &[FunctionDeclarationStatement],
 	) -> Result<T, Break>;
 

@@ -2,7 +2,7 @@ use std::fmt::{Display, Formatter};
 use std::rc::Rc;
 
 use crate::location::{Locate, Location};
-use crate::parse::Expression;
+use crate::parse::{Expression, VariableExpression};
 use crate::tokenize::Token;
 
 /////////////////////////////////////////////////////////////////////////////
@@ -31,7 +31,7 @@ pub struct BlockStatement {
 pub struct ClassDeclarationStatement {
 	pub keyword: Token,
 	pub name: Token,
-	pub super_class: Option<Expression>,
+	pub super_class: Option<VariableExpression>,
 	pub open_brace: Token,
 	pub methods: Vec<FunctionDeclarationStatement>,
 	pub close_brace: Token,
@@ -157,7 +157,7 @@ impl Display for ClassDeclarationStatement {
 
 		write!(f, "{PAD:width$}class {name}")?;
 
-		if let Some(Expression::Variable(Token { text: super_class, .. })) = super_class {
+		if let Some(VariableExpression(Token { text: super_class, .. })) = super_class {
 			write!(f, " < {super_class}")?;
 		}
 

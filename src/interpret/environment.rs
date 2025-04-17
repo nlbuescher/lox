@@ -12,9 +12,12 @@ use crate::interpret::visit::Visitor;
 use crate::interpret::{Class, Scope, TypeKind};
 use crate::location::Locate;
 use crate::parse::{
-	BlockStatement, ClassDeclarationStatement, Expression, ExpressionStatement, ForStatement,
-	FunctionDeclarationStatement, IfStatement, PrintStatement, ReturnStatement, Statement,
-	VariableDeclarationStatement, WhileStatement,
+	AssignmentExpression, BinaryExpression, BlockStatement, CallExpression,
+	ClassDeclarationStatement, Expression, ExpressionStatement, ForStatement,
+	FunctionDeclarationStatement, FunctionExpression, GetExpression, GroupingExpression,
+	IfStatement, LiteralExpression, PrintStatement, ReturnStatement, SetExpression, Statement,
+	SuperExpression, ThisExpression, UnaryExpression, VariableDeclarationStatement,
+	VariableExpression, WhileStatement,
 };
 use crate::tokenize::{Token, TokenKind};
 use crate::value::Value;
@@ -137,12 +140,12 @@ impl Visitor<Value> for Environment {
 	fn visit_class_declaration(
 		&mut self,
 		name: &Token,
-		super_class: &Option<Expression>,
+		super_class: &Option<VariableExpression>,
 		methods: &[FunctionDeclarationStatement],
 	) -> Result<Value, Break> {
 		let super_class = super_class
 			.as_ref()
-			.map(|expression| self.visit_expression(expression)?.as_class(expression.locate()))
+			.map(|expression| self.visit_variable(&expression.0)?.as_class(expression.locate()))
 			.transpose()?;
 
 		let mut class_methods = HashMap::new();
@@ -300,33 +303,43 @@ impl Visitor<Value> for Environment {
 
 	fn visit_expression(&mut self, expression: &Expression) -> Result<Value, Error> {
 		match expression {
-			Expression::Assignment { name, expression } => self.visit_assignment(name, expression),
+			Expression::Assignment(AssignmentExpression { name, expression }) => {
+				self.visit_assignment(name, expression)
+			}
 
-			Expression::Binary { left, operator, right } => {
+			Expression::Binary(BinaryExpression { left, operator, right }) => {
 				self.visit_binary(left, operator, right)
 			}
 
-			Expression::Call { callee, open_paren, arguments, .. } => {
+			Expression::Call(CallExpression { callee, open_paren, arguments, .. }) => {
 				self.visit_call(callee, open_paren, arguments)
 			}
 
-			Expression::Function { parameters, body, .. } => self.visit_function(parameters, body),
+			Expression::Function(FunctionExpression { parameters, body, .. }) => {
+				self.visit_function(parameters, body)
+			}
 
-			Expression::Get { object, property } => self.visit_get(object, property),
+			Expression::Get(GetExpression { object, property }) => self.visit_get(object, property),
 
-			Expression::Grouping(expression) => self.visit_grouping(expression),
+			Expression::Grouping(GroupingExpression(expression)) => self.visit_grouping(expression),
 
-			Expression::Literal(literal) => self.visit_literal(literal),
+			Expression::Literal(LiteralExpression(literal)) => self.visit_literal(literal),
 
-			Expression::Set { object, property, value } => self.visit_set(object, property, value),
+			Expression::Set(SetExpression { object, property, value }) => {
+				self.visit_set(object, property, value)
+			}
 
-			Expression::Super { keyword, method } => self.visit_super(keyword, method),
+			Expression::Super(SuperExpression { keyword, method }) => {
+				self.visit_super(keyword, method)
+			}
 
-			Expression::This(keyword) => self.visit_this(keyword),
+			Expression::This(ThisExpression(keyword)) => self.visit_this(keyword),
 
-			Expression::Unary { operator, expression } => self.visit_unary(operator, expression),
+			Expression::Unary(UnaryExpression { operator, expression }) => {
+				self.visit_unary(operator, expression)
+			}
 
-			Expression::Variable(name) => self.visit_variable(name),
+			Expression::Variable(VariableExpression(name)) => self.visit_variable(name),
 		}
 	}
 
