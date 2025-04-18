@@ -53,10 +53,10 @@ impl Function {
 }
 
 impl NativeFunction {
-	pub fn new<F>(arity: usize, body: F) -> Self
-	where
-		F: Fn(&mut Environment, &[Value]) -> Result<Value, Error> + 'static,
-	{
+	pub fn new(
+		arity: usize,
+		body: impl Fn(&mut Environment, &[Value]) -> Result<Value, Error> + 'static,
+	) -> Self {
 		NativeFunction { arity, body: Rc::new(body) }
 	}
 }
