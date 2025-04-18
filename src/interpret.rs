@@ -194,15 +194,97 @@ mod tests {
 
 	use super::*;
 
-	fn capture_run(input: &str) -> String {
+	fn capture_run(input: &str, verbose: bool) -> String {
 		let output = Rc::new(RefCell::new(Vec::new()));
 		let mut env = Environment::with_output(output.clone());
-		let result = run(input, &mut env, false);
+		let result = run(input, &mut env, verbose);
 		if let Err(error) = result {
 			writeln!(output.borrow_mut(), "{error:#}").unwrap();
 		}
 		let output = output.borrow().clone();
 		String::from_utf8(output).unwrap()
+	}
+
+	#[test]
+	pub fn test() {
+		let input = r#"
+var a = "global";
+{
+  fun showA() {
+    print a;
+  }
+
+  showA();
+  var a = "block";
+  showA();
+}"#;
+
+		let expected = "\
+Source:
+
+var a = \"global\";
+{
+  fun showA() {
+    print a;
+  }
+
+  showA();
+  var a = \"block\";
+  showA();
+}
+
+Tokenize:
+[  2:1  ] VAR 'var'
+[  2:5  ] IDENTIFIER 'a'
+[  2:7  ] EQUAL '='
+[  2:9  ] STRING '\"global\"'
+[  2:17 ] SEMICOLON ';'
+[  3:1  ] LEFT_BRACE '{'
+[  4:3  ] FUN 'fun'
+[  4:7  ] IDENTIFIER 'showA'
+[  4:12 ] LEFT_PAREN '('
+[  4:13 ] RIGHT_PAREN ')'
+[  4:15 ] LEFT_BRACE '{'
+[  5:5  ] PRINT 'print'
+[  5:11 ] IDENTIFIER 'a'
+[  5:12 ] SEMICOLON ';'
+[  6:3  ] RIGHT_BRACE '}'
+[  8:3  ] IDENTIFIER 'showA'
+[  8:8  ] LEFT_PAREN '('
+[  8:9  ] RIGHT_PAREN ')'
+[  8:10 ] SEMICOLON ';'
+[  9:3  ] VAR 'var'
+[  9:7  ] IDENTIFIER 'a'
+[  9:9  ] EQUAL '='
+[  9:11 ] STRING '\"block\"'
+[  9:18 ] SEMICOLON ';'
+[ 10:3  ] IDENTIFIER 'showA'
+[ 10:8  ] LEFT_PAREN '('
+[ 10:9  ] RIGHT_PAREN ')'
+[ 10:10 ] SEMICOLON ';'
+[ 11:1  ] RIGHT_BRACE '}'
+[ 11:2  ] EOF
+
+Parse:
+[  2:1  ] (vardecl a = \"global\")
+[  3:1  ] {
+[  4:3  ]  fun IDENTIFIER 'showA'()
+[  4:15 ]  {
+[  5:5  ]   (print (var a))
+[  6:3  ]  }
+[  8:3  ]  (expr (call (var showA)()))
+[  9:3  ]  (vardecl a = \"block\")
+[ 10:3  ]  (expr (call (var showA)()))
+[ 11:1  ] }
+
+Interpret:
+global
+global
+";
+
+		let actual = capture_run(input, true);
+
+		assert_eq!(expected, actual);
 	}
 
 	#[test]
@@ -220,7 +302,7 @@ thrice(fun(a) {
 ";
 		let expected = "1\n2\n3\n";
 
-		let actual = capture_run(input);
+		let actual = capture_run(input, false);
 
 		assert_eq!(expected, actual);
 	}
@@ -238,7 +320,7 @@ print DevonshireCream;
 ";
 		let expected = "DevonshireCream\n";
 
-		let actual = capture_run(input);
+		let actual = capture_run(input, false);
 
 		assert_eq!(expected, actual);
 	}
@@ -252,7 +334,7 @@ print bagel;
 ";
 		let expected = "Bagel instance\n";
 
-		let actual = capture_run(input);
+		let actual = capture_run(input, false);
 
 		assert_eq!(expected, actual);
 	}
@@ -267,7 +349,7 @@ print bagel.toppings;
 ";
 		let expected = "2\n";
 
-		let actual = capture_run(input);
+		let actual = capture_run(input, false);
 
 		assert_eq!(expected, actual);
 	}
@@ -285,7 +367,7 @@ Bacon().eat();
 ";
 		let expected = "Crunch crunch crunch!\n";
 
-		let actual = capture_run(input);
+		let actual = capture_run(input, false);
 
 		assert_eq!(expected, actual);
 	}
@@ -306,7 +388,7 @@ cake.taste();
 ";
 		let expected = "The German chocolate cake is delicious!\n";
 
-		let actual = capture_run(input);
+		let actual = capture_run(input, false);
 
 		assert_eq!(expected, actual);
 	}
@@ -318,7 +400,7 @@ print this;
 ";
 		let expected = "[  1:7  ] this is undefined\n";
 
-		let actual = capture_run(input);
+		let actual = capture_run(input, false);
 
 		assert_eq!(expected, actual);
 	}
@@ -333,7 +415,7 @@ notAMethod();
 ";
 		let expected = "[  2:11 ] this is undefined\n";
 
-		let actual = capture_run(input);
+		let actual = capture_run(input, false);
 
 		assert_eq!(expected, actual);
 	}
@@ -352,7 +434,7 @@ print foo.init();
 ";
 		let expected = "Foo instance\nFoo instance\nFoo instance\n";
 
-		let actual = capture_run(input);
+		let actual = capture_run(input, false);
 
 		assert_eq!(expected, actual);
 	}
@@ -371,7 +453,7 @@ print foo.init();
 ";
 		let expected = "Foo instance\n";
 
-		let actual = capture_run(input);
+		let actual = capture_run(input, false);
 
 		assert_eq!(expected, actual);
 	}
@@ -389,7 +471,7 @@ print Math.square(7);
 ";
 		let expected = "49\n";
 
-		let actual = capture_run(input);
+		let actual = capture_run(input, false);
 
 		assert_eq!(expected, actual);
 	}
@@ -409,7 +491,7 @@ BostonCream().eat();
 ";
 		let expected = "Yum!\n";
 
-		let actual = capture_run(input);
+		let actual = capture_run(input, false);
 
 		assert_eq!(expected, actual);
 	}
@@ -421,7 +503,7 @@ class Oops < Oops {}
 ";
 		let expected = "[  1:14 ] Oops is undefined\n";
 
-		let actual = capture_run(input);
+		let actual = capture_run(input, false);
 
 		assert_eq!(expected, actual);
 	}
@@ -435,7 +517,7 @@ class SubClass < NotAClass {}
 ";
 		let expected = "[  3:18 ] Expected Class but got String\n";
 
-		let actual = capture_run(input);
+		let actual = capture_run(input, false);
 
 		assert_eq!(expected, actual);
 	}
@@ -460,7 +542,7 @@ BostonCream().eat();
 ";
 		let expected = "Yum!\nBoston!\n";
 
-		let actual = capture_run(input);
+		let actual = capture_run(input, false);
 
 		assert_eq!(expected, actual);
 	}
@@ -492,7 +574,7 @@ BostonCream().eat();
 ";
 		let expected = "Yum!\nMiddle\nBoston!\n";
 
-		let actual = capture_run(input);
+		let actual = capture_run(input, false);
 
 		assert_eq!(expected, actual);
 	}

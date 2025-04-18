@@ -122,7 +122,7 @@ impl Callable for NativeFunction {
 	}
 
 	fn call(&self, env: &mut Environment, args: &[Value]) -> Result<Value, Error> {
-		(&self.body)(env, args)
+		(self.body)(env, args)
 	}
 }
 

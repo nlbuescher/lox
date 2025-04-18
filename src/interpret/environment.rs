@@ -210,7 +210,6 @@ impl Visitor<Value> for Environment {
 			}
 
 			while condition
-				.as_deref()
 				.map(|condition| environment.visit_expression(condition))
 				.transpose()?
 				.unwrap_or_else(|| Value::Bool(true))
